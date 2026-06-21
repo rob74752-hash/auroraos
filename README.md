@@ -27,7 +27,27 @@ This project was built end-to-end and the ISO assembles correctly, but:
 
 ## Quick start
 
-### 1. Build the ISO
+### 1. Get the ISO
+
+**Option A — Download the prebuilt image (easiest).**
+
+The latest signed release is hosted on the project website — no build required:
+
+- **Website:** https://auroraos.pages.dev → click **Download ISO**
+- **Direct link:** https://auroraos-download.rob74752.workers.dev/auroraos-0.1-amd64.iso (~2.4 GB; your browser saves it as `auroraos-<version>-amd64.iso`)
+- **GitHub release:** https://github.com/rob74752-hash/auroraos/releases/latest (release notes + the `.sha256` checksum)
+
+**Verify the download before flashing** against the SHA-256 published on the website and in the GitHub release:
+
+```bash
+sha256sum auroraos-*-amd64.iso                       # Linux / macOS
+# Windows PowerShell:
+#   Get-FileHash auroraos-*-amd64.iso -Algorithm SHA256
+```
+
+Then jump to **2. Flash to a USB stick** below.
+
+**Option B — Build it yourself.**
 
 Requires **WSL2 + Ubuntu** on Windows (or any Debian/Ubuntu Linux). One-time setup of build tools:
 
@@ -59,7 +79,7 @@ You need a **USB drive of at least 8 GB** (16 GB+ recommended if you'll use Pers
 **Option A — Rufus (Windows, recommended):**
 1. Download Rufus from https://rufus.ie
 2. Select your USB drive
-3. Select the AuroraOS ISO from `build-output/`
+3. Select the AuroraOS ISO (your download, or from `build-output/` if you built it)
 4. Partition scheme: **GPT**, target system: **UEFI (non-CSM)** (or MBR/BIOS for older PCs)
 5. Click **Start**. If prompted about hybrid ISO / DD mode, choose **DD mode**.
 
@@ -142,7 +162,7 @@ If Tor can't connect on your network, use a **bridge** — an unlisted entry rel
 4. Connect. The kill-switch stays up the whole time, so nothing leaks while you're pasting.
 5. **Bridges are amnesic** — gone on reboot, just like Tails. Keep your lines in a text file in `~/Persistent` (or `~/Documents`) and paste them again next session.
 
-> **Threat-model note:** configuring a bridge from the session means AuroraOS trusts *your session* to pick Tor's entry relay — the same stance Tails takes. The kill-switch still prevents leaks from misconfigured apps; it does not claim to stop malware already running as you from choosing a bad bridge. See `SECURITY-AUDIT.md`.
+> **Threat-model note:** configuring a bridge from the session means AuroraOS trusts *your session* to pick Tor's entry relay — the same stance Tails takes. The kill-switch still prevents leaks from misconfigured apps; it does not claim to stop malware already running as you from choosing a bad bridge. See [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md).
 
 ### Persistent + Tor mode
 - Choose **Persistent + Tor** at the boot menu.
