@@ -1,0 +1,27 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-unsafe-browser  (user launcher, runs as the live user)
+# =============================================================================
+# Shows a clear NON-anonymity warning (defaulting to Cancel, as Tails does),
+# grants ONLY the sandboxed 'clearnet' user access to the display, then runs the
+# privileged runner which opens the clearnet firewall exemption for the browser's
+# lifetime only. Use this to sign in to Wi-Fi captive portals, then close it.
+# =============================================================================
+
+ZEN=zenity
+command -v "$ZEN" >/dev/null 2>&1 || { echo "zenity not installed"; exit 1; }
+
+WARN="<span size='x-large' weight='bold' foreground='#cc0000'>Unsafe Browser — NOT anonymous</span>\n\nThis browser connects <b>DIRECTLY to the internet, NOT through Tor</b>. Websites will see your <b>real IP address</b>.\n\nUse it <b>only</b> to sign in to a Wi-Fi <b>captive portal</b> (hotel / airport), then <b>CLOSE it immediately</b>.\n\nDo NOT use it for normal browsing."
+
+# Confirmation defaults to Cancel.
+$ZEN --question --title="Unsafe Browser" --width=480 \
+     --ok-label="Start Unsafe Browser" --cancel-label="Cancel" --default-cancel \
+     --text="$WARN" 2>/dev/null || exit 0
+
+# Grant ONLY the clearnet user access to this X display (XWayland); revoke on exit.
+DISP="${DISPLAY:-:0}"
+xhost "+SI:localuser:clearnet" >/dev/null 2>&1
+trap 'xhost "-SI:localuser:clearnet" >/dev/null 2>&1 || true' EXIT INT TERM HUP
+
+# Privileged: open firewall exemption -> sandboxed clearnet browser -> close it.
+sudo -n /usr/local/sbin/aurora-unsafe-browser-run "$DISP"

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Camera (privacy toggle)
+Comment=Enable or disable the webcam. It is OFF by default for privacy.
+Exec=/usr/local/bin/aurora-privacy-toggle camera
+Icon=camera-web-symbolic
+Categories=System;Settings;Security;
+Keywords=camera;webcam;privacy;disable;enable;
+Terminal=false

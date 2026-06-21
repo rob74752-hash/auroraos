@@ -1,0 +1,40 @@
+# AuroraOS desktop defaults
+#
+# Disable screen locking ENTIRELY. The live user has no password by default, so
+# ANY lock — automatic (idle) OR manual (Super+L / the menu "Lock") — would
+# strand the user at an unanswerable unlock prompt, forcing a reboot. The
+# lockdown key below makes locking impossible; the screensaver keys also stop
+# idle activation. Users who WANT locking run "Set a Password" (app grid), which
+# sets a password AND re-enables locking for their session.
+[org/gnome/desktop/lockdown]
+disable-lock-screen=true
+
+[org/gnome/desktop/screensaver]
+lock-enabled=false
+idle-activation-enabled=false
+
+[org/gnome/desktop/session]
+idle-delay=uint32 0
+
+# Don't prompt to auto-suspend on AC (live-USB sessions).
+[org/gnome/settings-daemon/plugins/power]
+sleep-inactive-ac-type='nothing'
+sleep-inactive-battery-type='nothing'
+
+# Geolocation is permanently OFF. The geoclue daemon itself is purged from the
+# image (95-aurora-cleanup), and this turns the GNOME location switch off; the
+# companion locks/ file makes it impossible for any app or user to re-enable.
+[org/gnome/system/location]
+enabled=false
+
+# Keep the accessibility (universal access) menu in the top bar so the on-screen
+# keyboard ("GNOME Screen Keyboard") — handy for entering passwords without a
+# physical keyboard (anti-keylogger), as Tails highlights — is one click away.
+[org/gnome/desktop/a11y]
+always-show-universal-access-status=true
+
+# Enable the AuroraOS lock-menu extension (always-visible Lock button that offers
+# to set a password instead of locking the no-password user out). ding = the
+# desktop-icons extension, listed so enabling ours doesn't disable it.
+[org/gnome/shell]
+enabled-extensions=['aurora-lockmenu@auroraos', 'ding@rastersoft.com']

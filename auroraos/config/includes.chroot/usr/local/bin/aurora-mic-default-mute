@@ -1,0 +1,15 @@
+#!/bin/sh
+# AuroraOS — mute the microphone at login (mic OFF by default). Retries briefly
+# while PipeWire/WirePlumber finishes starting. The user re-enables it
+# deliberately via Privacy ▸ "Microphone".
+i=0
+while [ "$i" -lt 12 ]; do
+    if command -v wpctl >/dev/null 2>&1; then
+        wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 1 2>/dev/null && exit 0
+    elif command -v pactl >/dev/null 2>&1; then
+        pactl set-source-mute @DEFAULT_SOURCE@ 1 2>/dev/null && exit 0
+    fi
+    i=$((i + 1))
+    sleep 1
+done
+exit 0

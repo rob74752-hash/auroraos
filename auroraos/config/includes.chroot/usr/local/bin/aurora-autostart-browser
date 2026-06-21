@@ -1,0 +1,23 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — auto-open Tor Browser at login when in Tor mode
+# =============================================================================
+# Only acts in Tor mode. Waits for the system Tor circuit to come up (the
+# kill-switch blocks everything until then), then opens Tor Browser pointed at
+# the system Tor. In other modes it does nothing (you open Tor Browser yourself).
+# =============================================================================
+
+[ "$(cat /run/aurora-mode 2>/dev/null)" = tor ] || exit 0
+
+# Wait up to ~90s for a working Tor circuit before launching the browser.
+i=0
+while [ "$i" -lt 30 ]; do
+    if curl -s --max-time 4 --socks5-hostname 127.0.0.1:9050 \
+            https://check.torproject.org/ >/dev/null 2>&1; then
+        break
+    fi
+    i=$((i + 1))
+    sleep 3
+done
+
+exec /usr/local/bin/tor-browser

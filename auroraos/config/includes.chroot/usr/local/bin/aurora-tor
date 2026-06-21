@@ -1,0 +1,9 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — user-facing command: aurora-tor {start|stop|status}
+# =============================================================================
+# Thin wrapper around the tor-mode runtime script so the user can toggle Tor
+# mode from the terminal or a desktop launcher without remembering paths.
+# =============================================================================
+
+exec /usr/local/lib/aurora/tor-mode.sh "$@"

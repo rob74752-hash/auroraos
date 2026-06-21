@@ -1,0 +1,9 @@
+name = "auroraos-download"
+main = "src/index.js"
+compatibility_date = "2025-05-01"
+
+# Bind the R2 bucket holding the AuroraOS ISO. Read-only serving.
+[[r2_buckets]]
+binding = "ISO_BUCKET"
+bucket_name = "auroraos-iso"
+preview_bucket_name = "auroraos-iso"

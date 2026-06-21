@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Unsafe Browser
+Comment=Sign in to Wi-Fi captive portals — NOT anonymous (direct clearnet, not Tor)
+Exec=/usr/local/bin/aurora-unsafe-browser
+Icon=cs-network
+Categories=Network;WebBrowser;
+Keywords=captive;portal;clearnet;wifi;login;unsafe;
+Terminal=false

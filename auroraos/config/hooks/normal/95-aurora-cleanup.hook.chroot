@@ -1,0 +1,59 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS chroot hook — purge attack-surface / unwanted packages
+# =============================================================================
+# We install gnome-core (not the full `gnome` meta), but Recommends can still
+# drag in the software store, the geolocation stack, or stray games. Purge them
+# so they are GONE from the image (Tails-style minimal surface). Geolocation is
+# additionally killed via dconf + browser prefs; here we remove the daemon and
+# mask the service so location can NEVER be obtained on this OS.
+#
+# Never abort the build over a cleanup step — every removal tolerates failure.
+# =============================================================================
+set -e
+
+echo "[aurora] Cleanup: purging unwanted / attack-surface packages..."
+
+installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"; }
+
+PURGE="gnome-software gnome-software-common gnome-software-plugin-flatpak \
+       gnome-software-plugin-fwupd \
+       geoclue-2.0 \
+       gnome-weather \
+       firefox-esr \
+       keepassxc seahorse \
+       chrome-gnome-shell gnome-browser-connector \
+       gnome-extensions-app gnome-shell-extension-prefs \
+       totem totem-plugins rhythmbox rhythmbox-plugins \
+       gnome-online-accounts"
+# Notes on the additions:
+#   chrome-gnome-shell / gnome-browser-connector — the native host that lets
+#     extensions.gnome.org install UNSANDBOXED, shell-privilege JS from the web.
+#     Removing it (and the Extensions GUI) kills that attack surface; the vetted
+#     built-in gcampax extensions (apps-menu, places-menu, drive-menu, …) stay.
+#   totem / rhythmbox — a video player and a music player; Tails ships NEITHER
+#     (media parsers are a classic exploit surface). Brasero + Sound Juicer stay
+#     (Tails includes those).
+
+# Every GNOME game EXCEPT gnome-nibbles (which stays).
+GAMES="aisleriot four-in-a-row gnome-chess gnome-klotski gnome-mahjongg \
+       gnome-mines gnome-robots gnome-sudoku gnome-taquin gnome-tetravex \
+       hitori iagno lightsoff quadrapassel swell-foop tali five-or-more"
+
+for p in $PURGE $GAMES; do
+    if installed "$p"; then
+        echo "[aurora]   purging $p"
+        apt-get -y purge "$p" 2>/dev/null || true
+    fi
+done
+
+# Drop now-orphaned dependencies (e.g. packagekit once gnome-software is gone).
+apt-get -y --purge autoremove 2>/dev/null || true
+
+# Belt-and-suspenders: even if geoclue is somehow reinstalled, neuter it.
+systemctl mask geoclue.service 2>/dev/null || true
+# Remove the D-Bus activation file so it cannot be bus-activated either.
+rm -f /usr/share/dbus-1/system-services/org.freedesktop.GeoClue2.service 2>/dev/null || true
+rm -f /etc/geoclue/geoclue.conf 2>/dev/null || true
+
+echo "[aurora] Cleanup done."

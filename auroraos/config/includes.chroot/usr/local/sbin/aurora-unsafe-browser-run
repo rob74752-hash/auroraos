@@ -1,0 +1,86 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-unsafe-browser-run  (root; sudo-whitelisted)
+# =============================================================================
+# Runs the Unsafe Browser: the Tor Browser's Firefox, as the dedicated sandboxed
+# 'clearnet' user, in DIRECT (non-Tor) mode for captive-portal sign-in. Network
+# leak-safety is guaranteed by tor-mode.sh: the clearnet firewall exemption is
+# OPENED here and CLOSED the instant this process exits (trap), so nothing
+# clearnet can leave when the browser is not running. The browser also cannot
+# reach loopback/Tor (firewall) and runs as a separate user (cannot read the
+# real user's files).
+#
+# $1 = the X DISPLAY to draw on (XWayland), already xhost-granted by the launcher.
+#
+# NOTE: this is a first cut — the browser-launch specifics (TBB Firefox in
+# clearnet mode, the X display hand-off) need verification on real hardware.
+# =============================================================================
+set -u
+
+[ "$(id -u)" -eq 0 ] || { echo "must run as root (via sudo)"; exit 1; }
+
+DISP="${1:-:0}"
+TBB="/usr/local/share/tor-browser/Browser"
+CN_HOME="/home/clearnet"
+PROFILE="$CN_HOME/.unsafe-profile"
+RESOLV="$CN_HOME/.unsafe-resolv.conf"
+WARN="/usr/local/share/aurora/unsafe-browser-warning.html"
+
+log() { printf '[unsafe-browser] %s\n' "$*" >&2; }
+
+[ -x "$TBB/firefox" ] || { log "Tor Browser not found at $TBB."; exit 1; }
+id clearnet >/dev/null 2>&1 || { log "no 'clearnet' user."; exit 1; }
+
+# 1. DHCP-provided DNS (captive portals require it). NetworkManager keeps it even
+#    when the system resolver points at Tor.
+DNS="$(nmcli -t -f IP4.DNS dev show 2>/dev/null | sed -n 's/.*IP4.DNS\[[0-9]*\]://p' | head -1)"
+[ -n "$DNS" ] || DNS="$(awk '/^nameserver/{print $2; exit}' /run/NetworkManager/resolv.conf 2>/dev/null)"
+[ -n "$DNS" ] || log "WARNING: no DHCP DNS found; captive-portal name resolution may fail."
+printf 'nameserver %s\n' "${DNS:-192.168.0.1}" > "$RESOLV"
+chown clearnet:clearnet "$RESOLV"
+
+# 2. Fresh, amnesic profile each launch (DIRECT connection, not Tor).
+rm -rf "$PROFILE"; mkdir -p "$PROFILE"
+cat > "$PROFILE/user.js" <<PREFS
+// AuroraOS Unsafe Browser — DIRECT clearnet (NOT Tor).
+user_pref("network.proxy.type", 0);
+user_pref("network.proxy.socks_remote_dns", false);
+user_pref("extensions.torlauncher.prompt_at_startup", false);
+user_pref("extensions.torbutton.use_nontor_proxy", true);
+user_pref("browser.startup.homepage", "file://${WARN}");
+user_pref("browser.startup.page", 1);
+user_pref("geo.enabled", false);
+PREFS
+chown -R clearnet:clearnet "$PROFILE"
+
+# 3. Open the clearnet exemption — and ALWAYS close it on exit.
+trap '/usr/local/lib/aurora/tor-mode.sh clearnet-close 2>/dev/null || true' EXIT INT TERM HUP
+/usr/local/lib/aurora/tor-mode.sh clearnet-open || true
+
+# 4. Launch as 'clearnet', sandboxed (bubblewrap), with the DHCP DNS as its ONLY
+#    resolver, on the granted X display, with the warning start page.
+log "Starting Unsafe Browser (clearnet/direct — NOT anonymous)..."
+runuser -u clearnet -- env \
+    HOME="$CN_HOME" \
+    DISPLAY="$DISP" \
+    GDK_BACKEND=x11 \
+    MOZ_ENABLE_WAYLAND=0 \
+    TOR_SKIP_LAUNCH=1 \
+    bwrap \
+        --ro-bind / / \
+        --dev /dev \
+        --proc /proc \
+        --tmpfs /tmp \
+        --tmpfs /home \
+        --tmpfs /root \
+        --tmpfs /mnt \
+        --tmpfs /media \
+        --tmpfs /run/user \
+        --ro-bind /tmp/.X11-unix /tmp/.X11-unix \
+        --bind "$CN_HOME" "$CN_HOME" \
+        --ro-bind "$RESOLV" /etc/resolv.conf \
+        --die-with-parent \
+        --unshare-pid \
+        "$TBB/firefox" --no-remote --profile "$PROFILE"
+
+log "Unsafe Browser closed; clearnet exemption removed."

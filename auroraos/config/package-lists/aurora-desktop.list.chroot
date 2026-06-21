@@ -1,0 +1,96 @@
+# =============================================================================
+# AuroraOS — desktop environment & GUI applications (Tails-aligned)
+# =============================================================================
+# Format note: each package MUST be on its own line. live-build does NOT support
+# trailing inline comments — words after a package name are parsed as packages.
+
+# --- GNOME desktop ---
+# NOTE: we install gnome-core, NOT the full `gnome` metapackage. `gnome` drags in
+# the app store (gnome-software) and the whole games suite, which we deliberately
+# exclude to shrink the attack surface (Tails-style). A cleanup hook purges any
+# such packages that slip in via Recommends.
+gnome-core
+gnome-shell
+gnome-session
+gdm3
+gnome-control-center
+mutter
+nautilus
+gnome-terminal
+gnome-text-editor
+gnome-screenshot
+gnome-system-monitor
+file-roller
+
+# --- First-boot setup wizard (the Location page is disabled by a hook) ---
+gnome-initial-setup
+
+# --- Document / image viewers ---
+# (No video/music player — Tails ships neither; removed to cut media-parser
+#  attack surface. Audacity / Sound Recorder / Sound Juicer / Brasero remain.)
+evince
+eog
+gnome-calculator
+gnome-clocks
+gnome-calendar
+gnome-maps
+
+# --- The ONLY game kept (all other GNOME games are excluded / purged) ---
+gnome-nibbles
+
+# --- Fonts ---
+fonts-noto-core
+fonts-noto-color-emoji
+fonts-noto-cjk
+fonts-dejavu
+fonts-liberation
+
+# --- Office (same as Tails) ---
+libreoffice
+libreoffice-gtk3
+libreoffice-help-en-us
+
+# --- Media codecs ---
+gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good
+gstreamer1.0-plugins-bad
+gstreamer1.0-plugins-ugly
+gstreamer1.0-libav
+ffmpeg
+
+# --- Graphics / media creation & scanning (match Tails) ---
+gimp
+inkscape
+audacity
+gnome-sound-recorder
+simple-scan
+brasero
+sound-juicer
+bookletimposer
+
+# OCR for Document Scanner (Tails ships Tesseract OCR)
+tesseract-ocr
+tesseract-ocr-eng
+
+# --- Email (match Tails: Thunderbird with OpenPGP) ---
+thunderbird
+
+# --- Minimal editors only. NO developer toolchain: git / build-essential /
+#     python3-pip / vim / htop / tmux removed to match Tails + cut attack surface.
+nano
+file
+python3
+
+# --- AuroraOS Upgrader GUI (GTK + desktop notifications) ---
+python3-gi
+gir1.2-gtk-3.0
+gir1.2-glib-2.0
+gir1.2-notify-0.7
+libnotify-bin
+
+# --- Tor connection assistant (zenity dialogs shown at login in Tor mode) ---
+zenity
+# Clipboard tools so the assistant can copy the bridges URL to the clipboard
+# (wl-clipboard for Wayland, xclip as the X11 fallback).
+wl-clipboard
+xclip

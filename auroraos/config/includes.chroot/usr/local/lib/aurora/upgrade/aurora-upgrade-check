@@ -1,0 +1,70 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-upgrade-check
+# =============================================================================
+# Fetches the signed update manifest for the current channel, VERIFIES its
+# minisign signature, and reports whether a newer version is available.
+#
+# Output (machine-parseable key=value lines on stdout):
+#   status=update-available | up-to-date
+#   current=<ver>  latest=<ver>  released=<date>  size=<bytes>  changelog=<text>
+#
+# Exit codes:  10 = update available   0 = up to date   1 = error
+# A verified copy of the manifest is cached at /run/aurora-update/manifest.json
+# so the GUI / apply step can reuse it (apply still re-verifies independently).
+# =============================================================================
+
+set -eu
+. /usr/local/lib/aurora/upgrade/aurora-upgrade-common.sh
+
+au_require_pubkey
+command -v curl >/dev/null 2>&1 || au_die "curl not installed."
+
+CUR="$(au_current_version)"
+MAN_URL="${UPDATE_BASE_URL}/${UPDATE_CHANNEL}/manifest.json"
+SIG_URL="${MAN_URL}.minisig"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+au_fetch "$MAN_URL" "$WORK/manifest.json" || au_die "could not download the update manifest (offline?)."
+au_fetch "$SIG_URL" "$WORK/manifest.json.minisig" || au_die "could not download the manifest signature."
+
+# THE trust check: the manifest must be signed by the AuroraOS Update key.
+au_verify_sig "$WORK/manifest.json" "$WORK/manifest.json.minisig" \
+    || au_die "manifest signature INVALID — refusing to trust it."
+
+LATEST="$(au_json_str "$WORK/manifest.json" latest)"
+MINVER="$(au_json_str "$WORK/manifest.json" min_version)"
+RELEASED="$(au_json_str "$WORK/manifest.json" released)"
+SIZE="$(au_json_num "$WORK/manifest.json" size)"
+CHANGELOG="$(au_json_str "$WORK/manifest.json" changelog)"
+
+[ -n "$LATEST" ] || au_die "manifest missing 'latest' field."
+
+# Cache the verified manifest (user-writable runtime dir) for the GUI.
+CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/aurora-update"
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+cp "$WORK/manifest.json" "$CACHE_DIR/manifest.json" 2>/dev/null || true
+
+echo "current=$CUR"
+echo "latest=$LATEST"
+echo "released=${RELEASED:-unknown}"
+echo "size=${SIZE:-0}"
+echo "changelog=${CHANGELOG:-}"
+
+# Only offer forward upgrades, and only if we satisfy the minimum-version gate
+# (a build too old to take an incremental upgrade must do a manual reinstall).
+if [ "$(au_vercmp "$LATEST" "$CUR")" = "1" ]; then
+    if [ -n "$MINVER" ] && [ "$(au_vercmp "$CUR" "$MINVER")" = "-1" ]; then
+        echo "status=too-old"
+        au_log "Installed version $CUR is older than the minimum upgradable ($MINVER)."
+        au_log "Please reinstall the latest ISO manually."
+        exit 1
+    fi
+    echo "status=update-available"
+    exit 10
+fi
+
+echo "status=up-to-date"
+exit 0

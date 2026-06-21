@@ -1,0 +1,80 @@
+# =============================================================================
+# AuroraOS — core system packages (always installed)
+# =============================================================================
+# Format note: each package MUST be on its own line. live-build does NOT support
+# trailing inline comments — words after a package name are parsed as packages.
+
+# --- Essential desktop infrastructure ---
+linux-image-amd64
+live-boot
+live-config
+live-config-systemd
+systemd
+systemd-sysv
+dbus
+polkitd
+sudo
+
+# --- Localization & language ---
+locales
+console-setup
+kbd
+
+# --- Firmware for common hardware (Wi-Fi, GPUs, etc.) ---
+firmware-linux
+firmware-linux-free
+firmware-misc-nonfree
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-brcm80211
+firmware-intel-sound
+intel-microcode
+amd64-microcode
+
+# --- Filesystem & disk tools ---
+parted
+gparted
+gdisk
+e2fsprogs
+dosfstools
+ntfs-3g
+exfatprogs
+cryptsetup
+lvm2
+rsync
+unzip
+xz-utils
+squashfs-tools
+
+# --- Crypto / signature verification (Tor Browser GPG check, signed updates) ---
+gnupg
+ca-certificates
+minisign
+
+# --- Networking ---
+network-manager
+network-manager-gnome
+wireless-tools
+wpasupplicant
+iputils-ping
+curl
+wget
+openssh-client
+
+# --- X11 / Wayland basics ---
+xorg
+xserver-xorg
+xserver-xorg-video-all
+xserver-xorg-input-all
+mesa-utils
+
+# --- Bootloader tooling (REQUIRED by live-build) ---
+# live-build's lb_binary_iso expects isohybrid INSIDE the chroot
+# (chroot/usr/bin/isohybrid, provided by the 'syslinux' package) to make the
+# final ISO hybrid-bootable (USB + optical). Without it the build aborts at
+# the very last step with "isohybrid: not found".
+syslinux
+syslinux-common
+syslinux-utils
+isolinux

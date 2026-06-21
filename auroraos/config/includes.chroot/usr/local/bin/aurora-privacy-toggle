@@ -1,0 +1,38 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-privacy-toggle {camera|mic}  (user)
+# =============================================================================
+# Explicit, per-session enable/disable of the camera or microphone, with a
+# desktop notification. Both are OFF/MUTED by default (camera driver blacklisted;
+# mic muted at login) so nothing can use them silently — the user turns them on
+# deliberately here, and off again afterwards.
+# =============================================================================
+notify() { command -v notify-send >/dev/null 2>&1 && notify-send "$@"; }
+
+case "${1:-}" in
+    camera)
+        st="$(sudo -n /usr/local/sbin/aurora-camera status 2>/dev/null)"
+        if [ "$st" = "on" ]; then
+            sudo -n /usr/local/sbin/aurora-camera off >/dev/null 2>&1
+            notify -i camera-disabled-symbolic "Camera disabled" "The webcam driver is unloaded."
+        else
+            sudo -n /usr/local/sbin/aurora-camera on >/dev/null 2>&1
+            notify -i camera-web-symbolic "Camera ENABLED" "Anything you allow can now use it — disable it when done."
+        fi
+        ;;
+    mic)
+        if command -v wpctl >/dev/null 2>&1; then
+            wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle 2>/dev/null
+            if wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -qi MUTED; then
+                notify -i microphone-disabled-symbolic "Microphone muted"
+            else
+                notify -i audio-input-microphone-symbolic "Microphone ENABLED" "Mute it again when done."
+            fi
+        elif command -v pactl >/dev/null 2>&1; then
+            pactl set-source-mute @DEFAULT_SOURCE@ toggle 2>/dev/null
+            notify "Microphone toggled"
+        fi
+        ;;
+    *)
+        echo "usage: aurora-privacy-toggle {camera|mic}"; exit 1 ;;
+esac

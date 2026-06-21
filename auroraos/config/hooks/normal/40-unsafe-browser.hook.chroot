@@ -1,0 +1,26 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS chroot hook — create the dedicated 'clearnet' user for the Unsafe
+# Browser (Tails-style captive-portal browser).
+# =============================================================================
+# The Unsafe Browser runs as THIS separate, login-disabled user so that:
+#   * the Tor-mode kill switch can identify its traffic by UID and let it out
+#     ONLY while the browser runs (see tor-mode.sh clearnet-open/-close), and
+#   * it has its own home and cannot read the real user's files.
+# It is launched sandboxed (bubblewrap) with its own DNS + a fresh profile.
+# =============================================================================
+set -e
+
+if ! id clearnet >/dev/null 2>&1; then
+    echo "[aurora] Creating the 'clearnet' user for the Unsafe Browser..."
+    adduser --system --group --home /home/clearnet \
+            --shell /usr/sbin/nologin --disabled-password clearnet
+fi
+
+# Private home, owned by the clearnet user; the real user (aurora) cannot read it
+# and vice-versa.
+mkdir -p /home/clearnet
+chown clearnet:clearnet /home/clearnet
+chmod 700 /home/clearnet
+
+echo "[aurora] 'clearnet' user ready (uid $(id -u clearnet))."

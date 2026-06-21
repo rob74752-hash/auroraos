@@ -1,0 +1,7 @@
+{
+  "uuid": "aurora-lockmenu@auroraos",
+  "name": "AuroraOS Lock Menu",
+  "description": "Always show the Lock button in the system menu. If no password is set, clicking it offers to create one (via Set a Password) instead of locking the no-password live user out. Once a password exists, the normal lock works.",
+  "shell-version": ["43"],
+  "version": 1
+}

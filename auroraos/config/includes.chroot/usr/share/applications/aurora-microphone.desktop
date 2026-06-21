@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Microphone (privacy toggle)
+Comment=Mute or unmute the microphone. It is MUTED by default for privacy.
+Exec=/usr/local/bin/aurora-privacy-toggle mic
+Icon=audio-input-microphone-symbolic
+Categories=System;Settings;Security;
+Keywords=microphone;mic;privacy;mute;record;
+Terminal=false

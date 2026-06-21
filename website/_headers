@@ -1,0 +1,16 @@
+# Cloudflare Pages headers for AuroraOS website
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://auroraos-download.rob74752.workers.dev; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests
+
+# Static assets: short cache so deploys are picked up quickly.
+# (For long-cache in future, version asset filenames instead.)
+/styles.css
+  Cache-Control: public, max-age=60
+/app.js
+  Cache-Control: public, max-age=60
+/favicon.svg
+  Cache-Control: public, max-age=300

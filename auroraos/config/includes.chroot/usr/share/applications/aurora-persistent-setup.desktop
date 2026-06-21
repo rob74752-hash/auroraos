@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS Persistent Setup
+Comment=Create the encrypted Persistent volume on this USB (one-time)
+Exec=sh -c 'sudo aurora-persistent-setup; echo; read -p "Press Enter to close…" _'
+Icon=drive-harddisk
+Terminal=true
+Categories=System;Settings;
+Keywords=persistence;encryption;luks;aurora;

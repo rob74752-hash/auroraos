@@ -1,0 +1,54 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — live-build configuration (the source of truth for the build)
+# =============================================================================
+# Designed for live-build 1:20230502 (the Debian bookworm version).
+#
+# Base:  Debian bookworm  Arch: amd64  Image: hybrid ISO (boots USB + optical)
+# =============================================================================
+
+set -e
+
+# Reproducible-build hook: if the caller exports SOURCE_DATE_EPOCH (build.sh
+# derives it from the source tree), live-build/dpkg honour it for timestamps.
+: "${SOURCE_DATE_EPOCH:=}"
+
+lb config noauto \
+  --distribution bookworm \
+  --architecture amd64 \
+  \
+  `# ISO9660 volume id MUST be uppercase A-Z/0-9/_ and <=32 chars or xorriso warns` \
+  --iso-volume "AURORAOS" \
+  --iso-application "AuroraOS Live System" \
+  --iso-publisher "AuroraOS Project" \
+  \
+  `# Hybrid ISO image (bootable from USB and optical media)` \
+  --binary-images iso-hybrid \
+  \
+  `# Both bootloaders: syslinux for BIOS, grub-efi for UEFI. Keep Secure Boot` \
+  `# support (shim + signed grub) so modern machines boot without disabling it.` \
+  --bootloaders "syslinux,grub-efi" \
+  --uefi-secure-boot enable \
+  \
+  `# Archive areas: main + non-free (firmware, microcode, codecs)` \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  \
+  `# Debian CDN mirror. HTTP (not HTTPS) on purpose: the chroot has no CA trust` \
+  `# during early apt, so an HTTPS mirror fails cert verification there. apt's` \
+  `# GPG signature check is the real integrity control and works over HTTP.` \
+  --mirror-chroot "http://deb.debian.org/debian/" \
+  --mirror-binary "http://deb.debian.org/debian/" \
+  --security true \
+  \
+  `# Default kernel cmdline for the live system:` \
+  `#   - username/user-fullname: make live-config create the 'aurora' user (and` \
+  `#     NOT a second default 'user' account), with graphical autologin.` \
+  `#   - aurora.amnesic: the safe default mode (leaves no trace) when a user just` \
+  `#     boots the default entry. The boot menu offers Persistent/Tor explicitly.` \
+  --bootappend-live "boot=live components username=aurora user-fullname=Aurora hostname=auroraos aurora.amnesic" \
+  \
+  `# Unattended builds` \
+  --interactive false \
+  "$@"
+
+echo "AURORA_CONFIG_DONE"

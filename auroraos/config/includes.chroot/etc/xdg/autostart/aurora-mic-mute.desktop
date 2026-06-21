@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS microphone privacy (mute at login)
+Comment=Mutes the microphone on login so nothing can record by default
+Exec=/usr/local/bin/aurora-mic-default-mute
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

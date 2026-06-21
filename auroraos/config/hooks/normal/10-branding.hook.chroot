@@ -1,0 +1,127 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS chroot hook — branding & identity customization
+# =============================================================================
+# Sets the system's visible identity: hostname, default user, OS name in
+# /etc/os-release, /etc/aurora-version, MOTD, and the aurora-help command.
+# =============================================================================
+
+set -e
+
+USERNAME="aurora"
+HOSTNAME="auroraos"
+VERSION="0.5"
+SITE="https://auroraos.pages.dev"
+
+echo "[aurora] Applying branding..."
+
+# --- Hostname ---
+echo "$HOSTNAME" > /etc/hostname
+
+# --- /etc/hosts ---
+cat > /etc/hosts <<EOF
+127.0.0.1   localhost
+127.0.1.1   $HOSTNAME
+
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+EOF
+
+# --- /etc/os-release ---
+cat > /etc/os-release <<EOF
+NAME="AuroraOS"
+VERSION="$VERSION (Bookworm)"
+ID=auroraos
+ID_LIKE=debian
+PRETTY_NAME="AuroraOS $VERSION"
+VERSION_ID="$VERSION"
+HOME_URL="$SITE"
+SUPPORT_URL="$SITE"
+BUG_REPORT_URL="$SITE"
+EOF
+
+# --- Single source of truth for the version (used by aurora-upgrade) ---
+printf '%s\n' "$VERSION" > /etc/aurora-version
+
+# --- Default live user --------------------------------------------------------
+# Created with --disabled-password: there is NO login password (a known/baked
+# password would be a universal credential on every device). The boot cmdline
+# (username=aurora) makes live-config autologin as this user; passwordless sudo
+# is granted via /etc/sudoers.d/aurora in the finalize hook.
+if ! id "$USERNAME" >/dev/null 2>&1; then
+    adduser --disabled-password --gecos "Aurora User" "$USERNAME"
+fi
+# Home is 700: other local users (e.g. the Unsafe Browser's 'clearnet' user)
+# must not be able to read the live user's files.
+chmod 700 "/home/$USERNAME" 2>/dev/null || true
+# NOTE: deliberately NOT adding the user to the 'sudo' group. The Debian default
+# `%sudo ALL=(ALL:ALL) ALL` would grant FULL root once the user sets a password
+# (for screen locking) — which would let a hijacked session disable the Tor
+# kill-switch and deanonymize. Root is granted ONLY via the explicit, scoped
+# allowlist in /etc/sudoers.d/aurora (see 90-finalize-wiring). These remaining
+# groups are hardware/network access only, not privilege escalation.
+for grp in netdev plugdev audio video cdrom dip bluetooth; do
+    getent group "$grp" >/dev/null 2>&1 && usermod -aG "$grp" "$USERNAME" || true
+done
+
+# --- MOTD ---------------------------------------------------------------------
+cat > /etc/motd <<'EOF'
+
+   ___                              _   ___ ___
+  / _ \  __ _  __ _ _ __ __ _ _ __ / | / _ \_ _|
+ | | | |/ _` |/ _` | '__/ _` | '_ \| || | | | |
+ | |_| | (_| | (_| | | | (_| | |_) | || |_| | |
+  \___/ \__,_|\__, |_|  \__,_| .__/|_(_)___/___|
+              |___/          |_|
+
+  Welcome to AuroraOS — your private OS on a stick.
+
+  Boot modes (chosen at the boot menu):
+    * Amnesic     — everything wipes on shutdown (no trace)  [default]
+    * Persistent  — your files & settings are saved (encrypted)
+    * Tor         — all traffic routed through the Tor network
+
+  Type 'aurora-help' for tips. Have a secure day.
+
+EOF
+
+# --- aurora-help --------------------------------------------------------------
+cat > /usr/local/bin/aurora-help <<'EOF'
+#!/bin/sh
+cat <<HELP
+
+AuroraOS Quick Help
+===================
+
+Boot modes (chosen at the boot menu):
+  Amnesic     Nothing is saved. Pull the USB and no trace remains. (default)
+  Persistent  Files you put in these folders survive reboot (encrypted):
+                ~/Documents  ~/Downloads  ~/Persistent
+                plus app settings (~/.config ~/.local), saved Wi-Fi, and
+                GPG/SSH keys (~/.gnupg ~/.ssh).
+  Tor         All traffic goes through Tor. At login a screen lets you connect
+                (directly or via a bridge); Tor Browser opens once connected.
+
+Useful commands:
+  aurora-status             Show current boot mode & network routing
+  sudo aurora-persistent-setup   Create the encrypted Persistent volume (once)
+  sudo aurora-tor-connect        Connect Tor + kill-switch
+  Bridges (if Tor is censored)   Set in the "Connect to Tor" assistant — choose
+                                 "Configure a bridge" and paste your bridge line.
+                                 Keep your lines in ~/Persistent; they're amnesic.
+                                   obfs4 <ip>:<port> <fingerprint> cert=... iat-mode=0
+  aurora-upgrade            Check for and install a signed AuroraOS update
+
+Note: for security you cannot disable the Tor kill-switch from inside a session
+(a compromised session could otherwise leak your IP). To leave Tor mode, reboot.
+
+Networking:
+  Tor Browser command:  tor-browser
+  Tor SOCKS proxy:      127.0.0.1:9050   (for any SOCKS-aware app)
+
+HELP
+EOF
+chmod +x /usr/local/bin/aurora-help
+
+echo "[aurora] Branding applied."

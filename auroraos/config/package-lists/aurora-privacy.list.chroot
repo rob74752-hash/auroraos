@@ -1,0 +1,53 @@
+# =============================================================================
+# AuroraOS — privacy & anonymity toolkit (the Tails-inspired layer)
+# =============================================================================
+# Format note: each package MUST be on its own line. live-build does NOT support
+# trailing inline comments — words after a package name are parsed as packages.
+
+# --- Tor core ---
+tor
+tor-geoipdb
+
+# --- Pluggable transports for bridges (obfs4 / snowflake). webtunnel is NOT in
+#     Debian; its client is copied from the Tor Browser bundle by the
+#     05-tor-browser hook, and torrc wires up ClientTransportPlugin for all three.
+obfs4proxy
+snowflake-client
+
+# --- Anonymity apps (match Tails) ---
+onionshare
+onioncircuits
+
+# --- Encrypted messaging over Tor (match Tails) ---
+pidgin
+pidgin-otr
+dino-im
+
+# --- Encryption & key management (match Tails: GNOME Secrets + Kleopatra).
+#     Replaces the previous KeePassXC + Seahorse. gnupg (CLI) is in aurora-core.
+secrets
+kleopatra
+gnome-disk-utility
+mat2
+metadata-cleaner
+wipe
+secure-delete
+
+# --- Bitcoin wallet (match Tails; Tails' Monero "Feather" is not in Debian) ---
+electrum
+
+# --- Mandatory access control: Tails confines risky apps with AppArmor ---
+apparmor
+apparmor-profiles
+apparmor-utils
+
+# --- Unsafe Browser sandbox (Tails-style captive-portal browser) ---
+# bubblewrap = unprivileged sandbox (user namespaces; no setuid-root like
+# firejail). xhost (x11-xserver-utils) lets the sandboxed 'clearnet' user draw on
+# the session's display via XWayland.
+bubblewrap
+x11-xserver-utils
+
+# --- Firewall (used for the Tor-mode kill switch) ---
+nftables
+iptables

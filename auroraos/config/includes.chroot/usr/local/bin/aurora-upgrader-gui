@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+# =============================================================================
+# AuroraOS Upgrader — GTK front-end for the signed update system
+# =============================================================================
+# A small "Tails Upgrader"-style window: it checks for a signed update and, on
+# one click, installs it with a live progress readout. All trust decisions
+# (signature + checksum verification) happen in the privileged backend
+# (aurora-upgrade-apply); this GUI only drives it and shows progress.
+# =============================================================================
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, GLib
+import subprocess, threading
+
+CHECK = "/usr/local/lib/aurora/upgrade/aurora-upgrade-check"
+APPLY = "/usr/local/lib/aurora/upgrade/aurora-upgrade-apply"
+
+
+def parse_kv(text):
+    out = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            out[k.strip()] = v.strip()
+    return out
+
+
+class Upgrader(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="AuroraOS Upgrader")
+        self.set_default_size(460, 240)
+        self.set_border_width(18)
+        self.set_position(Gtk.WindowPosition.CENTER)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.add(box)
+
+        self.title = Gtk.Label(xalign=0)
+        self.title.set_markup("<big><b>AuroraOS Upgrader</b></big>")
+        box.pack_start(self.title, False, False, 0)
+
+        self.status = Gtk.Label(xalign=0, label="Checking for updates…")
+        self.status.set_line_wrap(True)
+        box.pack_start(self.status, False, False, 0)
+
+        self.changelog = Gtk.Label(xalign=0)
+        self.changelog.set_line_wrap(True)
+        self.changelog.get_style_context().add_class("dim-label")
+        box.pack_start(self.changelog, False, False, 0)
+
+        self.progress = Gtk.ProgressBar()
+        box.pack_start(self.progress, False, False, 0)
+
+        btnrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btnrow.set_halign(Gtk.Align.END)
+        box.pack_end(btnrow, False, False, 0)
+
+        self.close_btn = Gtk.Button(label="Close")
+        self.close_btn.connect("clicked", lambda *_: self.destroy())
+        btnrow.pack_start(self.close_btn, False, False, 0)
+
+        self.action_btn = Gtk.Button(label="Install update")
+        self.action_btn.get_style_context().add_class("suggested-action")
+        self.action_btn.set_sensitive(False)
+        self.action_btn.connect("clicked", self.on_install)
+        btnrow.pack_start(self.action_btn, False, False, 0)
+
+        self.latest = None
+        threading.Thread(target=self.do_check, daemon=True).start()
+
+    # ---- check -------------------------------------------------------------
+    def do_check(self):
+        try:
+            p = subprocess.run([CHECK], capture_output=True, text=True, timeout=120)
+            kv = parse_kv(p.stdout)
+            GLib.idle_add(self.show_check, p.returncode, kv)
+        except Exception as e:
+            GLib.idle_add(self.show_error, str(e))
+
+    def show_check(self, rc, kv):
+        cur = kv.get("current", "?")
+        if rc == 10:
+            self.latest = kv.get("latest", "?")
+            self.status.set_text(
+                f"Update available: AuroraOS {self.latest}  (you have {cur})")
+            cl = kv.get("changelog", "")
+            if cl:
+                self.changelog.set_text(cl)
+            self.action_btn.set_sensitive(True)
+        elif rc == 0:
+            self.status.set_text(f"AuroraOS {cur} is up to date.")
+            self.progress.set_fraction(1.0)
+        else:
+            self.status.set_text("Could not check for updates (offline, or "
+                                 "updates not configured).")
+        return False
+
+    def show_error(self, msg):
+        self.status.set_text("Update check failed: " + msg)
+        return False
+
+    # ---- install -----------------------------------------------------------
+    def on_install(self, _btn):
+        self.action_btn.set_sensitive(False)
+        self.close_btn.set_sensitive(False)
+        self.progress.set_pulse_step(0.1)
+        self.status.set_text("Starting upgrade…")
+        GLib.timeout_add(120, self._pulse)
+        self._installing = True
+        threading.Thread(target=self.do_install, daemon=True).start()
+
+    def _pulse(self):
+        if getattr(self, "_installing", False):
+            self.progress.pulse()
+            return True
+        return False
+
+    def do_install(self):
+        self._result = None
+        try:
+            # sudo -n: the live user has passwordless sudo for this.
+            proc = subprocess.Popen(
+                ["sudo", "-n", APPLY],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for line in proc.stdout:
+                line = line.strip()
+                if "PROGRESS:" in line:
+                    msg = line.split("PROGRESS:", 1)[1].strip()
+                    GLib.idle_add(self.status.set_text, msg.capitalize())
+                elif line.startswith("status="):
+                    # 'installed' = real write; 'manual-required' = read-only USB.
+                    self._result = line.split("=", 1)[1].strip()
+            rc = proc.wait()
+            GLib.idle_add(self.finish, rc)
+        except Exception as e:
+            GLib.idle_add(self.finish_error, str(e))
+
+    def finish(self, rc):
+        self._installing = False
+        self.close_btn.set_sensitive(True)
+        result = getattr(self, "_result", None)
+        if rc == 0 and result == "installed":
+            self.progress.set_fraction(1.0)
+            self.status.set_markup(
+                "<b>Upgrade complete.</b> Restart AuroraOS to use the new version.\n"
+                "(The previous version is kept on the USB as a rollback.)")
+        elif rc == 0 and result == "manual-required":
+            self.progress.set_fraction(0.0)
+            self.status.set_markup(
+                "<b>This USB is read-only</b> (flashed with balenaEtcher / dd), so it\n"
+                "can't be updated in place. To update: download the latest ISO from\n"
+                "auroraos.pages.dev and re-flash. Your encrypted Persistent\n"
+                "partition is NOT affected.")
+        elif rc == 0:
+            self.progress.set_fraction(1.0)
+            self.status.set_text("No update was applied (already up to date).")
+        else:
+            self.status.set_text("Upgrade failed — the system was left unchanged. "
+                                 "See a terminal: aurora-upgrade")
+        return False
+
+    def finish_error(self, msg):
+        self._installing = False
+        self.close_btn.set_sensitive(True)
+        self.status.set_text("Upgrade error: " + msg)
+        return False
+
+
+def main():
+    win = Upgrader()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

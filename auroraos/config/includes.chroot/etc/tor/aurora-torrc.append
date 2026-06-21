@@ -1,0 +1,65 @@
+## =============================================================================
+## AuroraOS — tor daemon configuration for transparent proxying
+## =============================================================================
+## Merged into /etc/tor/torrc during build. Enables the ports that the
+## tor-mode.sh kill switch redirects traffic into:
+##   - DNSPort   : resolves DNS over Tor (prevents DNS leaks)
+##   - TransPort : transparently proxies arbitrary TCP
+##   - SocksPort : for apps that speak SOCKS (Tor Browser, etc.)
+##
+## NOTE on syntax: modern tor binds the address INLINE on the *Port line
+## (e.g. `TransPort 127.0.0.1:9040`). The old separate `TransListenAddress` /
+## `DNSListenAddress` directives are deprecated/removed and make tor refuse to
+## start, so we do NOT use them.
+## =============================================================================
+
+## ---- AuroraOS torrc additions (appended to the default torrc) ----
+
+# SOCKS proxy for Tor Browser and SOCKS-aware apps. IsolateDestAddr/Port keep
+# streams to different destinations on separate circuits (anti-correlation).
+SocksPort 127.0.0.1:9050 IsolateDestAddr IsolateDestPort
+
+# Control port (local only, cookie-authenticated). The cookie is placed at a
+# fixed path and made group-readable so the 'aurora' user (added to the
+# debian-tor group) can authenticate Tor Browser against the SYSTEM tor in Tor
+# mode — instead of Tor Browser starting its own conflicting tor.
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+CookieAuthFile /run/tor/control.authcookie
+CookieAuthFileGroupReadable 1
+
+# Transparent proxy port — the nftables kill switch redirects TCP here.
+TransPort 127.0.0.1:9040 IsolateDestAddr IsolateDestPort
+
+# DNS-over-Tor — the firewall redirects all :53 traffic here.
+DNSPort 127.0.0.1:5353
+
+# Map *.onion (and other resolved hosts) into a virtual address range so they
+# can be transparently proxied. This range MUST match VIRT_NET in tor-mode.sh.
+AutomapHostsOnResolve 1
+AutomapHostsSuffixes .onion,.exit
+VirtualAddrNetworkIPv4 10.192.0.0/10
+
+# Client only — never act as a relay or exit.
+ExitPolicy reject *:*
+ClientOnly 1
+
+# Amnesic-friendly: keep tor from writing state to disk where avoidable.
+AvoidDiskWrites 1
+
+# Reject unsafe SOCKS requests that would leak the target hostname via DNS.
+SafeSocks 1
+TestSocks 1
+WarnUnsafeSocks 1
+
+# --- Pluggable transports (bridges) ------------------------------------------
+# Declares the PT clients so obfs4 / webtunnel / meek_lite / snowflake / conjure
+# bridges actually work when a user configures one via the connection assistant.
+# Tor launches a PT only ON DEMAND (when a matching bridge is set), so a line
+# whose binary is missing does NOT prevent tor from starting. webtunnel is
+# provided by lyrebird (copied from the GPG-verified Tor Browser bundle by the
+# 05-tor-browser hook); obfs4proxy + snowflake-client are Debian packages.
+ClientTransportPlugin obfs4,meek_lite exec /usr/bin/obfs4proxy
+ClientTransportPlugin webtunnel exec /usr/local/bin/lyrebird
+ClientTransportPlugin snowflake exec /usr/local/bin/snowflake-client
+ClientTransportPlugin conjure exec /usr/local/bin/conjure-client

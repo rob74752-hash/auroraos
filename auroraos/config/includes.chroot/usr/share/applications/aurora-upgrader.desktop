@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS Upgrader
+Comment=Check for and install signed AuroraOS updates
+Exec=/usr/local/bin/aurora-upgrader-gui
+Icon=system-software-update
+Terminal=false
+Categories=System;Settings;
+Keywords=update;upgrade;aurora;

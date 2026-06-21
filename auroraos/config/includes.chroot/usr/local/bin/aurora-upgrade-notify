@@ -1,0 +1,46 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-upgrade-notify  (runs once at login, in the user session)
+# =============================================================================
+# Waits for the network (and, in Tor mode, a Tor circuit), checks for a signed
+# update, and shows a desktop notification if one is available. Never installs
+# anything — it just nudges the user to open the AuroraOS Upgrader.
+# =============================================================================
+
+CHECK="/usr/local/lib/aurora/upgrade/aurora-upgrade-check"
+STAMP="${XDG_RUNTIME_DIR:-/tmp}/aurora-upgrade-notified"
+
+# Only notify once per session.
+[ -e "$STAMP" ] && exit 0
+
+# Give the network/Tor a moment to come up after login.
+sleep 40
+
+# Wait (up to ~2 min) for connectivity before bothering to check. SECURITY: in
+# Tor mode, probe ONLY through Tor's SOCKS — never a direct request, which would
+# leak the real IP if the kill-switch had failed.
+TOR_MODE=0
+[ "$(cat /run/aurora-mode 2>/dev/null)" = tor ] && TOR_MODE=1
+i=0
+while [ "$i" -lt 24 ]; do
+    if [ "$TOR_MODE" -eq 1 ]; then
+        curl -fsS --max-time 8 --socks5-hostname 127.0.0.1:9050 -o /dev/null \
+             https://auroraos.pages.dev/ 2>/dev/null && break
+    else
+        curl -fsS --max-time 5 -o /dev/null https://auroraos.pages.dev/ 2>/dev/null && break
+    fi
+    i=$((i + 1)); sleep 5
+done
+
+mkdir -p /run/aurora-update 2>/dev/null || true
+OUT="$("$CHECK" 2>/dev/null)"; RC=$?
+: > "$STAMP" 2>/dev/null || true
+
+[ "$RC" -eq 10 ] || exit 0
+LATEST="$(printf '%s\n' "$OUT" | sed -n 's/^latest=//p')"
+
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send -u normal -i system-software-update \
+        "AuroraOS update available" \
+        "Version ${LATEST:-new} is ready. Open “AuroraOS Upgrader” to install it."
+fi

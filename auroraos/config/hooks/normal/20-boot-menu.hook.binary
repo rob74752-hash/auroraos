@@ -1,0 +1,157 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS binary hook — inject the boot-mode entries into BOTH bootloaders
+# =============================================================================
+# iso-hybrid uses TWO bootloaders:
+#   * syslinux/isolinux  -> BIOS boot   (live entries in isolinux/live.cfg)
+#   * grub-efi           -> UEFI boot   (boot/grub/grub.cfg)
+# The three AuroraOS modes (Persistent / Amnesic / Tor) plus Failsafe must
+# appear on BOTH, so we patch both menu files.
+#
+# CRITICAL detail: live-build runs .hook.binary hooks with the working directory
+# set to the `binary/` tree (it does `cd binary` then `../<hook>`). So paths here
+# are relative to binary/ — e.g. isolinux/live.cfg, boot/grub/grub.cfg — NOT
+# binary/isolinux/...  (Getting this wrong is why earlier ISOs silently shipped
+# with no AuroraOS mode picker.) We detect the root either way to be safe.
+#
+# If we cannot find ANY bootloader menu we FAIL THE BUILD (exit 1) rather than
+# produce a menu-less image. Default entry is Amnesic; Persistent omits `quiet`
+# so the LUKS passphrase prompt is visible.
+# =============================================================================
+
+set -e
+
+echo "[aurora] Injecting boot-mode entries into bootloader configs..."
+
+# Work out where the image tree actually is relative to our CWD.
+if [ -d isolinux ] || [ -d boot/grub ] || [ -d live ]; then
+    ROOT="."
+elif [ -d binary ]; then
+    ROOT="binary"
+else
+    ROOT="."
+fi
+
+COMMON="boot=live components quiet"
+PERSIST_CMD="boot=live components"   # no 'quiet' -> passphrase prompt is visible
+
+# --- Detect kernel/initrd image names from the actual built files ------------
+KVM=$(cd "$ROOT/live" 2>/dev/null && ls -1 vmlinuz* 2>/dev/null | head -1 || true)
+IRD=$(cd "$ROOT/live" 2>/dev/null && ls -1 initrd* 2>/dev/null | head -1 || true)
+KERNEL="/live/${KVM:-vmlinuz}"
+INITRD="/live/${IRD:-initrd.img}"
+echo "[aurora]   root=$ROOT kernel=$KERNEL initrd=$INITRD"
+
+patched_any=0
+
+# ---------------------------------------------------------------------------
+# 1. SYSLINUX / ISOLINUX (BIOS) — prepend our entries to the live menu file.
+# ---------------------------------------------------------------------------
+SYSLINUX_MENU=""
+for cand in "$ROOT/isolinux/live.cfg" "$ROOT/syslinux/live.cfg" "$ROOT/isolinux/menu.cfg"; do
+    [ -f "$cand" ] && { SYSLINUX_MENU="$cand"; break; }
+done
+[ -z "$SYSLINUX_MENU" ] && SYSLINUX_MENU=$(find "$ROOT" -path '*isolinux*' -name 'live.cfg' 2>/dev/null | head -1)
+
+if [ -n "$SYSLINUX_MENU" ] && [ -f "$SYSLINUX_MENU" ]; then
+    echo "[aurora]   patching syslinux (BIOS): $SYSLINUX_MENU"
+    {
+        echo "# === AuroraOS custom boot modes (BIOS/syslinux) ==="
+        echo "label amnesic"
+        echo "  menu label AuroraOS (Amnesic - no trace, not saved)"
+        echo "  menu default"
+        echo "  kernel $KERNEL"
+        echo "  append initrd=$INITRD $COMMON aurora.amnesic"
+        echo ""
+        echo "label persistent"
+        echo "  menu label AuroraOS (Persistent - saves files, encrypted)"
+        echo "  kernel $KERNEL"
+        echo "  append initrd=$INITRD $PERSIST_CMD aurora.persistent"
+        echo ""
+        echo "label tor"
+        echo "  menu label AuroraOS (Tor - anonymous, no trace)"
+        echo "  kernel $KERNEL"
+        echo "  append initrd=$INITRD $COMMON aurora.tor"
+        echo ""
+        echo "label persistent-tor"
+        echo "  menu label AuroraOS (Persistent + Tor - saves files + anonymous)"
+        echo "  kernel $KERNEL"
+        echo "  append initrd=$INITRD $PERSIST_CMD aurora.persistent aurora.tor"
+        echo ""
+        echo "label failsafe"
+        echo "  menu label AuroraOS (Failsafe - verbose, no graphics)"
+        echo "  kernel $KERNEL"
+        echo "  append initrd=$INITRD boot=live components aurora.amnesic nomodeset 3"
+        echo ""
+        echo "# === End AuroraOS custom boot modes ==="
+        echo ""
+        cat "$SYSLINUX_MENU"
+    } > "${SYSLINUX_MENU}.new"
+    mv "${SYSLINUX_MENU}.new" "$SYSLINUX_MENU"
+    # Ensure a sensible menu timeout in the main isolinux config.
+    SYSLINUX_MAIN="$ROOT/isolinux/isolinux.cfg"
+    [ -f "$SYSLINUX_MAIN" ] || SYSLINUX_MAIN=$(find "$ROOT" -path '*isolinux*' -name 'isolinux.cfg' 2>/dev/null | head -1)
+    if [ -n "$SYSLINUX_MAIN" ] && [ -f "$SYSLINUX_MAIN" ]; then
+        if grep -qi '^timeout' "$SYSLINUX_MAIN"; then
+            sed -i 's/^[Tt][Ii][Mm][Ee][Oo][Uu][Tt].*/timeout 100/' "$SYSLINUX_MAIN"
+        else
+            printf 'timeout 100\n' >> "$SYSLINUX_MAIN"
+        fi
+    fi
+    patched_any=1
+else
+    echo "[aurora]   no syslinux live menu found (BIOS boot may be unconfigured)"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. GRUB (UEFI) — append our entries; a trailing `set default/timeout` wins.
+# ---------------------------------------------------------------------------
+GRUB_CFG="$ROOT/boot/grub/grub.cfg"
+[ -f "$GRUB_CFG" ] || GRUB_CFG=$(find "$ROOT" -path '*grub*' -name 'grub.cfg' 2>/dev/null | head -1)
+
+if [ -n "$GRUB_CFG" ] && [ -f "$GRUB_CFG" ]; then
+    echo "[aurora]   patching grub (UEFI): $GRUB_CFG"
+    cat >> "$GRUB_CFG" <<GRUB
+
+# === AuroraOS custom boot modes (UEFI/grub) ===
+menuentry "AuroraOS (Amnesic - no trace, not saved)" {
+    linux $KERNEL $COMMON aurora.amnesic
+    initrd $INITRD
+}
+menuentry "AuroraOS (Persistent - saves files, encrypted)" {
+    linux $KERNEL $PERSIST_CMD aurora.persistent
+    initrd $INITRD
+}
+menuentry "AuroraOS (Tor - anonymous, no trace)" {
+    linux $KERNEL $COMMON aurora.tor
+    initrd $INITRD
+}
+menuentry "AuroraOS (Persistent + Tor - saves files + anonymous)" {
+    linux $KERNEL $PERSIST_CMD aurora.persistent aurora.tor
+    initrd $INITRD
+}
+menuentry "AuroraOS (Failsafe - verbose, no graphics)" {
+    linux $KERNEL boot=live components aurora.amnesic nomodeset 3
+    initrd $INITRD
+}
+set default="AuroraOS (Amnesic - no trace, not saved)"
+set timeout=10
+# === End AuroraOS custom boot modes ===
+GRUB
+    patched_any=1
+else
+    echo "[aurora]   no grub.cfg found (UEFI boot may be unconfigured)"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Fail loud if we patched NOTHING — a menu-less ISO is a build failure.
+# ---------------------------------------------------------------------------
+if [ "$patched_any" -ne 1 ]; then
+    echo "[aurora] FATAL: could not find either bootloader menu (cwd=$(pwd), root=$ROOT)."
+    echo "[aurora]        Refusing to ship an ISO with no AuroraOS mode picker."
+    echo "[aurora]        .cfg files present:"
+    find "$ROOT" -name '*.cfg' 2>/dev/null | sed 's/^/[aurora]          /' || true
+    exit 1
+fi
+
+echo "[aurora] Boot-mode entries injected. Default: Amnesic, 10s timeout."

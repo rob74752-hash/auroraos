@@ -1,0 +1,159 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-upgrade-apply   (runs as root)
+# =============================================================================
+# Downloads the signed upgrade artifact named in the VERIFIED manifest, checks
+# its minisign signature AND its SHA-256, and atomically swaps the live system
+# image (filesystem.squashfs) on the USB — keeping the previous image as a
+# rollback. This mirrors how Tails applies an incremental upgrade in place.
+#
+# Trust: this step NEVER trusts its caller. It re-downloads and re-verifies the
+# manifest signature itself, then verifies the artifact signature + hash, before
+# writing anything.
+#
+# Writability: a plain dd-flashed ISO is read-only (ISO9660); there is nothing
+# to write to. In that case we print manual-upgrade instructions (download the
+# new ISO and re-flash) and exit cleanly — exactly Tails' "manual upgrade" path.
+# =============================================================================
+
+set -eu
+. /usr/local/lib/aurora/upgrade/aurora-upgrade-common.sh
+
+[ "$(id -u)" -eq 0 ] || au_die "aurora-upgrade-apply must run as root."
+au_require_pubkey
+
+CUR="$(au_current_version)"
+MAN_URL="${UPDATE_BASE_URL}/${UPDATE_CHANNEL}/manifest.json"
+SIG_URL="${MAN_URL}.minisig"
+
+WORK="$(mktemp -d)"
+NEW_FILE=""
+BAK_FILE=""
+SQUASHFS=""
+restore_on_fail() {
+    rc=$?
+    [ -n "$NEW_FILE" ] && rm -f "$NEW_FILE" 2>/dev/null || true
+    # If the swap was interrupted, put the rollback copy back.
+    if [ -n "$SQUASHFS" ] && [ ! -s "$SQUASHFS" ] && [ -n "$BAK_FILE" ] && [ -s "$BAK_FILE" ]; then
+        mv -f "$BAK_FILE" "$SQUASHFS" 2>/dev/null || true
+        sync
+    fi
+    rm -rf "$WORK" 2>/dev/null || true
+    [ "$rc" -ne 0 ] && au_log "Upgrade did not complete; the system was left unchanged."
+    exit $rc
+}
+trap restore_on_fail EXIT
+
+# --- 1. Re-fetch + verify the manifest --------------------------------------
+au_log "PROGRESS: checking for updates"
+au_fetch "$MAN_URL" "$WORK/manifest.json" || au_die "could not download the manifest."
+au_fetch "$SIG_URL" "$WORK/manifest.json.minisig" || au_die "could not download the manifest signature."
+au_verify_sig "$WORK/manifest.json" "$WORK/manifest.json.minisig" \
+    || au_die "manifest signature INVALID — aborting."
+
+LATEST="$(au_json_str "$WORK/manifest.json" latest)"
+MINVER="$(au_json_str "$WORK/manifest.json" min_version)"
+ART_URL="$(au_json_str "$WORK/manifest.json" url)"
+ART_SIG="$(au_json_str "$WORK/manifest.json" sig_url)"
+ART_SHA="$(au_json_str "$WORK/manifest.json" sha256)"
+ART_SIZE="$(au_json_num "$WORK/manifest.json" size)"
+
+[ -n "$LATEST" ] && [ -n "$ART_URL" ] && [ -n "$ART_SIG" ] && [ -n "$ART_SHA" ] \
+    || au_die "manifest is missing required fields."
+
+if [ "$(au_vercmp "$LATEST" "$CUR")" != "1" ]; then
+    au_log "Already up to date (current $CUR, latest $LATEST). Nothing to do."
+    exit 0
+fi
+if [ -n "$MINVER" ] && [ "$(au_vercmp "$CUR" "$MINVER")" = "-1" ]; then
+    au_die "this version ($CUR) is too old to upgrade incrementally; reinstall the latest ISO."
+fi
+
+# --- 2. Locate the live medium and confirm we can write to it ----------------
+MEDIUM=""
+for mp in /run/live/medium /usr/lib/live/mount/medium /lib/live/mount/medium; do
+    mountpoint -q "$mp" 2>/dev/null && { MEDIUM="$mp"; break; }
+done
+[ -n "$MEDIUM" ] || au_die "could not locate the live medium mount."
+
+FSTYPE="$(findmnt -no FSTYPE "$MEDIUM" 2>/dev/null || echo '')"
+SQUASHFS="$MEDIUM/live/filesystem.squashfs"
+
+if [ "$FSTYPE" = "iso9660" ] || ! mount -o remount,rw "$MEDIUM" 2>/dev/null; then
+    cat >&2 <<EOF
+
+[aurora-upgrade] This AuroraOS USB is a read-only (dd / balenaEtcher-flashed)
+                 image, so the in-place upgrade cannot write to it. Do a MANUAL
+                 upgrade:
+
+   1. Download the latest ISO from https://auroraos.pages.dev
+   2. Re-flash your USB with balenaEtcher / Rufus.
+   3. Your encrypted Persistent volume is on a SEPARATE partition and is NOT
+      touched by re-flashing — it carries over.
+
+EOF
+    # Machine-readable result so the GUI/CLI show the correct "re-flash" guidance
+    # instead of a bogus "restart to apply" (the apply wrote NOTHING here).
+    echo "status=manual-required"
+    echo "version=$LATEST"
+    SQUASHFS=""   # don't let the trap think a swap was interrupted
+    exit 0
+fi
+
+[ -f "$SQUASHFS" ] || au_die "live image not found at $SQUASHFS."
+
+# Need room for the new image alongside the current one + a rollback copy.
+AVAIL_KB="$(df -Pk "$MEDIUM" | awk 'NR==2{print $4}')"
+NEED_KB=$(( (ART_SIZE / 1024) + 65536 ))
+if [ -n "$ART_SIZE" ] && [ "$ART_SIZE" -gt 0 ] && [ "$AVAIL_KB" -lt "$NEED_KB" ]; then
+    au_die "not enough free space on the USB for the upgrade (need ~$((NEED_KB/1024)) MiB)."
+fi
+
+# --- 3. Download + verify the new system image -------------------------------
+NEW_FILE="$MEDIUM/live/filesystem.squashfs.new"
+au_log "PROGRESS: downloading AuroraOS $LATEST"
+au_fetch "$ART_URL" "$NEW_FILE" || au_die "download of the new system image failed."
+au_fetch "$ART_SIG" "$WORK/artifact.minisig" || au_die "download of the artifact signature failed."
+
+au_log "PROGRESS: verifying signature"
+au_verify_sig "$NEW_FILE" "$WORK/artifact.minisig" \
+    || au_die "artifact signature INVALID — refusing to install."
+
+au_log "PROGRESS: verifying checksum"
+GOT_SHA="$(au_sha256 "$NEW_FILE")"
+[ "$GOT_SHA" = "$ART_SHA" ] || au_die "artifact SHA-256 mismatch (expected $ART_SHA, got $GOT_SHA)."
+if [ -n "$ART_SIZE" ] && [ "$ART_SIZE" -gt 0 ]; then
+    GOT_SIZE="$(stat -c %s "$NEW_FILE" 2>/dev/null || wc -c < "$NEW_FILE")"
+    [ "$GOT_SIZE" = "$ART_SIZE" ] || au_die "artifact size mismatch (expected $ART_SIZE, got $GOT_SIZE)."
+fi
+
+# --- 4. Atomic swap with rollback --------------------------------------------
+# Use renames (not copies) so we only ever need room for the old + new image
+# (the download peak), not a third full copy. Both files live on the same
+# filesystem, so each mv is an atomic rename. If we're interrupted between the
+# two renames, the trap restores the backup over the (missing) live image.
+au_log "PROGRESS: installing"
+sync
+BAK_FILE="$MEDIUM/live/filesystem.squashfs.bak"
+rm -f "$BAK_FILE" 2>/dev/null || true
+mv -f "$SQUASHFS" "$BAK_FILE"     # current image -> rollback (rename)
+mv -f "$NEW_FILE" "$SQUASHFS"     # verified new image -> live (rename)
+NEW_FILE=""
+sync
+
+# Record what we did (for diagnostics / a future rollback entry).
+{
+    echo "from=$CUR"
+    echo "to=$LATEST"
+    echo "sha256=$ART_SHA"
+} > "$MEDIUM/live/aurora-upgrade.state" 2>/dev/null || true
+sync
+
+mount -o remount,ro "$MEDIUM" 2>/dev/null || true
+SQUASHFS=""   # success — disarm the rollback guard
+
+au_log "PROGRESS: done"
+au_log "AuroraOS $LATEST installed. Reboot to use it. (Previous image kept as rollback.)"
+echo "status=installed"
+echo "version=$LATEST"
+exit 0

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS Update Check
+Comment=Notifies you when a signed AuroraOS update is available
+Exec=/usr/local/bin/aurora-upgrade-notify
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=30

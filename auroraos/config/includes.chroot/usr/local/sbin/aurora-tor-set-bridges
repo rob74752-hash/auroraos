@@ -1,0 +1,147 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-tor-set-bridges  (root; whitelisted for passwordless sudo)
+# =============================================================================
+# Installs bridge lines (obfs4 / webtunnel / snowflake / ...) for the SYSTEM
+# tor, in the Tails style: the live user configures Tor from within the session.
+#
+# This is the ONLY helper that may change which relay Tor enters through, and it
+# is deliberately NARROW:
+#
+#   * Input comes ONLY via stdin (one bridge line per line). It NEVER reads a
+#     bridge from an environment variable, so the old AURORA_BRIDGE env-injection
+#     vector (audit C3) cannot recur — sudoers drops env_reset + no env_keep.
+#   * Each line is strictly validated as a REAL bridge line (transport +
+#     host:port + fingerprint/args), with no control characters and no embedded
+#     newlines. Anything that is not exactly a bridge is rejected.
+#   * The writer emits ONLY "UseBridges 1" and "Bridge ..." directives into a
+#     dedicated include file (/etc/tor/bridges.conf.d/aurora.conf). Nothing else
+#     can ever reach that file, so the bug class "a pasted value smuggles other
+#     torrc directives" (audit C3) is closed structurally.
+#   * `tor --verify-config` MUST accept the result before the file is installed.
+#     Tor's own parser is the final authority.
+#
+# THREAT-MODEL TRADEOFF (recorded in SECURITY-AUDIT.md, C1d "resolved"): allowing
+# a session the user controls to pick Tor's entry relay means a process already
+# running maliciously AS THE USER could route through an attacker relay and
+# deanonymize. This is the same stance Tails takes. The kill-switch still
+# prevents leaks from misconfigured apps and still blocks all traffic until Tor
+# connects; it just does not claim to stop malware already running as the user.
+# =============================================================================
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "run via: sudo aurora-tor-set-bridges" >&2; exit 2; }
+
+BRIDGES_DIR="/etc/tor/bridges.conf.d"
+BRIDGES_FILE="$BRIDGES_DIR/aurora.conf"
+TORRC="/etc/tor/torrc"
+
+# --- 1. Read candidate bridge lines from stdin into a temp file --------------
+# Read as root, from the calling user's piped stdin. mktemp is under /tmp (tmpfs
+# in the live session — no disk trace); strict perms so other users can't peek.
+WORK="$(mktemp /tmp/aurora-bridges.XXXXXX)"
+chmod 600 "$WORK"
+VERIFY=""            # candidate include file (set in step 3); cleaned on exit
+trap 'rm -f "$WORK" "$WORK.bak" "$VERIFY"' EXIT INT TERM
+
+# Drop empty lines and surrounding whitespace; reject anything that is not a
+# clean, single bridge line. We accumulate ACCEPTED lines into $WORK.
+accepted=0
+while IFS= read -r raw || [ -n "$raw" ]; do
+    # Trim leading/trailing whitespace.
+    line="$(printf '%s' "$raw" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$line" ] || continue
+    [ "${line#\#}" = "$line" ] || continue   # ignore full-line comments
+
+    # HARD reject any control character (newline injection / torrc smuggling).
+    if printf '%s' "$line" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+        echo "aurora-tor-set-bridges: rejected (control character): $line" >&2
+        exit 3
+    fi
+
+    # STRICT bridge-line shape:
+    #   [transport ] host:port [fingerprint] [args...]
+    # transport: OPTIONAL — obfs4|webtunnel|snowflake|meek_lite|conjure|obfs3|
+    #            scramblesuit (omitted = a plain/vanilla bridge, Tails-style).
+    # host:port: IPv4, [IPv6], or hostname, then :port (1-5 digits)
+    # then the usual identity/transport args. The arg charset includes URL
+    # punctuation (? & % ~ @) so webtunnel `url=` values with query strings are
+    # accepted. Anything that is still malformed is caught by tor --verify-config
+    # below; control chars are already rejected above, so a Bridge line can never
+    # smuggle a second directive regardless of what the args contain.
+    if ! printf '%s' "$line" | LC_ALL=C grep -Eq \
+        '^((obfs4|webtunnel|snowflake|meek_lite|conjure|obfs3|scramblesuit)[[:space:]]+)?(\[?[0-9A-Fa-f.:_-]+\]?):[0-9]{1,5}([[:space:]]+[0-9A-Za-z:._=,+/?&%~@-]+)*[[:space:]]*$'
+        then
+        echo "aurora-tor-set-bridges: rejected (not a valid bridge line): $line" >&2
+        exit 3
+    fi
+
+    # We ONLY ever write a literal "Bridge <line>". The line contains no control
+    # characters (checked above), so it can never break out of this single
+    # directive into a new one. Even if the line's trailing args contained
+    # something that looks like a torrc keyword (e.g. "SocksPort 0"), it is
+    # emitted on the SAME Bridge line, so Tor parses it as bridge address/args,
+    # NOT as a standalone directive — and `tor --verify-config` (step 4) rejects
+    # it as a malformed bridge long before install. There is no second writer
+    # of this file. DO NOT add one: that is what closes C3 structurally.
+    printf 'Bridge %s\n' "$line" >> "$WORK"
+    accepted=$((accepted + 1))
+done
+
+# --- 2. Empty input means "clear bridges" (connect direct) -------------------
+if [ "$accepted" -eq 0 ]; then
+    rm -f "$BRIDGES_FILE"
+    echo "aurora-tor-set-bridges: bridges cleared (Tor will connect direct)."
+    exit 0
+fi
+
+# --- 3. Build the candidate include file: marker + UseBridges + Bridge lines -
+VERIFY="$(mktemp /tmp/aurora-bridges.verify.XXXXXX)"
+chmod 600 "$VERIFY"
+{
+    echo "# AuroraOS runtime bridges (set via aurora-tor-set-bridges)"
+    echo "UseBridges 1"
+    cat "$WORK"
+} > "$VERIFY"
+
+# --- 4. Install into the include dir, THEN let tor's own parser approve it ----
+# `tor --verify-config` only ever parses the files torrc actually %includes, so
+# the candidate must PHYSICALLY be at $BRIDGES_FILE for the check to exercise it
+# — validating it while it still sat in /tmp would test the OLD config, not the
+# new bridges. We therefore back up any current bridges, drop the candidate in
+# place, verify, and ROLL BACK on failure, so a rejected paste never changes the
+# live config and Tor's own parser is genuinely the final authority.
+mkdir -p "$BRIDGES_DIR"
+chmod 755 "$BRIDGES_DIR"
+
+had_old=0
+if [ -f "$BRIDGES_FILE" ]; then
+    cp -a "$BRIDGES_FILE" "$WORK.bak"
+    had_old=1
+fi
+
+install -m 644 -o root -g root "$VERIFY" "$BRIDGES_FILE"
+
+# Tor parses the full config (main torrc + every %include). The service defaults
+# file may be absent on some builds, so fall back to verifying with just torrc.
+if ! tor --verify-config -f "$TORRC" \
+         --defaults-torrc /usr/share/tor/tor-service-defaults-torrc >/dev/null 2>&1 \
+   && ! tor --verify-config -f "$TORRC" >/dev/null 2>&1; then
+    # Roll back to EXACTLY the previous state — nothing changed for the user.
+    if [ "$had_old" -eq 1 ]; then
+        cp -a "$WORK.bak" "$BRIDGES_FILE"
+    else
+        rm -f "$BRIDGES_FILE"
+    fi
+    echo "aurora-tor-set-bridges: tor --verify-config rejected the bridges; not installed (previous config restored)." >&2
+    exit 4
+fi
+
+# The %include of bridges.conf.d/*.conf is wired up at BUILD TIME by
+# 90-finalize-wiring.hook.chroot, so we don't touch /etc/tor/torrc here. (A
+# second writer of the same line would only invite drift.) If for some reason it
+# is missing on a running system, the bridges are still written safely to the
+# include file and will take effect as soon as torrc includes them.
+
+echo "aurora-tor-set-bridges: installed $accepted bridge line(s); Tor will use them next (re)start."
+exit 0

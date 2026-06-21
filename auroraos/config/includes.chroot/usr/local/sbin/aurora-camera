@@ -1,0 +1,15 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-camera {on|off|status}  (root; sudo-whitelisted)
+# =============================================================================
+# Loads / unloads the USB webcam driver (uvcvideo). The camera is OFF by default
+# (blacklisted in /etc/modprobe.d/aurora-camera-off.conf); this is how the user
+# explicitly turns it on for a session and off again afterwards.
+# =============================================================================
+[ "$(id -u)" -eq 0 ] || { echo "run via sudo"; exit 1; }
+case "${1:-status}" in
+    on)     modprobe uvcvideo 2>/dev/null && echo "on" || { echo "failed"; exit 1; } ;;
+    off)    modprobe -r uvcvideo 2>/dev/null; echo "off" ;;
+    status) lsmod 2>/dev/null | grep -q '^uvcvideo' && echo "on" || echo "off" ;;
+    *)      echo "usage: aurora-camera {on|off|status}"; exit 1 ;;
+esac

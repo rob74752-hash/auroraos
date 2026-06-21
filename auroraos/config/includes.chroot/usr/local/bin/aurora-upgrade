@@ -1,0 +1,63 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-upgrade  (user-facing command)
+# =============================================================================
+# Checks for a signed update and, if the user confirms, applies it. The
+# privileged apply step runs via sudo (the live user has passwordless sudo).
+#
+#   aurora-upgrade            check, then prompt before installing
+#   aurora-upgrade --check    check only (no changes)
+#   aurora-upgrade -y         install without prompting (used by the GUI)
+# =============================================================================
+
+set -eu
+
+CHECK="/usr/local/lib/aurora/upgrade/aurora-upgrade-check"
+APPLY="/usr/local/lib/aurora/upgrade/aurora-upgrade-apply"
+ASSUME_YES=0
+CHECK_ONLY=0
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes) ASSUME_YES=1 ;;
+        --check)  CHECK_ONLY=1 ;;
+        -h|--help)
+            echo "Usage: aurora-upgrade [--check] [-y]"; exit 0 ;;
+    esac
+done
+
+# Run the check; capture its key=value output and exit code.
+set +e
+OUT="$("$CHECK")"
+RC=$?
+set -e
+printf '%s\n' "$OUT" | sed 's/^changelog=/changelog: /; s/^latest=/Latest version: /; s/^current=/Installed:       /' | grep -E '^(Latest|Installed|changelog|released=)' || true
+
+case "$RC" in
+    0)  echo "AuroraOS is up to date."; exit 0 ;;
+    10) : ;;  # update available
+    *)  echo "Update check failed."; exit 1 ;;
+esac
+
+LATEST="$(printf '%s\n' "$OUT" | sed -n 's/^latest=//p')"
+echo
+echo "A signed AuroraOS update is available: $LATEST"
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    exit 10
+fi
+
+if [ "$ASSUME_YES" -ne 1 ]; then
+    printf "Download and install it now? [y/N] "
+    read -r ans
+    case "$ans" in
+        y|Y|yes|YES) : ;;
+        *) echo "Cancelled."; exit 0 ;;
+    esac
+fi
+
+# Privileged apply (sudo -n: no prompt; the live user has NOPASSWD sudo).
+if [ "$(id -u)" -eq 0 ]; then
+    "$APPLY"
+else
+    sudo -n "$APPLY"
+fi

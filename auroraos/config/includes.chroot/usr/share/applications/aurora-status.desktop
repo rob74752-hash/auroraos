@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS Status
+Comment=Show the current boot mode, persistence, and Tor routing state
+Exec=sh -c 'aurora-status; echo; read -p "Press Enter to close…" _'
+Icon=dialog-information
+Terminal=true
+Categories=System;
+Keywords=status;mode;tor;persistence;aurora;

@@ -1,0 +1,3 @@
+# AuroraOS — lock geolocation OFF so it can never be turned back on.
+# A locked key cannot be overridden by the user or by an application.
+/org/gnome/system/location/enabled

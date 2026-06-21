@@ -1,0 +1,40 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — user-facing command: aurora-status
+# =============================================================================
+# Shows the current boot mode, whether persistence is active, and whether the
+# Tor kill switch is enabled. Useful sanity check for the user.
+# =============================================================================
+
+MODE_FILE="/run/aurora-mode"
+
+echo "================ AuroraOS Status ================"
+if [ -f "$MODE_FILE" ]; then
+    echo "Boot mode      : $(cat "$MODE_FILE")"
+else
+    echo "Boot mode      : unknown (not set)"
+fi
+
+# Persistence
+if mountpoint -q /mnt/persistent 2>/dev/null; then
+    echo "Persistence    : ACTIVE (/mnt/persistent mounted)"
+    df -h /mnt/persistent 2>/dev/null | tail -1 | awk '{print "  used/total  :", $3, "/", $2}'
+else
+    echo "Persistence    : inactive"
+fi
+
+# Tor
+if command -v nft >/dev/null 2>&1 && nft list table ip aurora_tor >/dev/null 2>&1; then
+    echo "Tor kill-switch: ACTIVE"
+else
+    echo "Tor kill-switch: inactive"
+fi
+
+# Tor daemon
+if systemctl is-active --quiet tor 2>/dev/null; then
+    echo "Tor daemon     : running"
+else
+    echo "Tor daemon     : stopped"
+fi
+
+echo "================================================="

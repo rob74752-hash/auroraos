@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AuroraOS — a private operating system on a stick. Boot from USB into Amnesic, Persistent, Tor, or Persistent + Tor mode. Built on Debian + GNOME." />
+  <meta name="theme-color" content="#0c0d0a" />
+  <title>AuroraOS // Field Manual</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="styles.css?v=indigo5" />
+</head>
+<body>
+  <div class="fx-grain" aria-hidden="true"></div>
+  <div class="fx-noise" aria-hidden="true"></div>
+
+  <div class="wrap">
+    <!-- NAV -->
+    <nav class="nav">
+      <div class="nav__inner">
+        <a href="#top" class="nav__brand">
+          <span class="glyph">▲</span> AURORA<span style="color:var(--ink-faint)">/</span>OS
+          <span class="id">v0.5 · BKM-12</span>
+        </a>
+        <div class="nav__links" id="navLinks">
+          <a href="#modes">Modes</a>
+          <a href="#features">Manifest</a>
+          <a href="#download">Acquire</a>
+          <a href="#docs">Reference</a>
+          <a href="#faq">FAQ</a>
+          <a href="#download" class="pill">Get ISO →</a>
+        </div>
+        <button class="nav__burger" id="burger" aria-label="Menu" aria-controls="navLinks" aria-expanded="false">≡</button>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <header class="hero" id="top">
+      <div class="hero__grid">
+        <div>
+          <span class="hero__stamp">// Classified · Personal Use · Field-Grade</span>
+          <h1 class="hero__title">
+            An operating system<br />that <em>forgets</em><br />on command.
+          </h1>
+          <p class="hero__lede">
+            AuroraOS is a <strong>bootable-from-USB</strong> Linux distribution in the Tails
+            tradition. Carry it in your pocket, boot it on any machine, and choose at startup
+            whether to <strong>persist</strong>, <strong>vanish</strong>, route everything
+            through <strong>Tor</strong>, or combine encrypted persistence with Tor routing.
+          </p>
+          <div class="hero__cta">
+            <a href="#download" class="btn btn--primary">Acquire the ISO →</a>
+            <a href="#docs" class="btn btn--ghost">Read the manual</a>
+          </div>
+          <div class="hero__meta">
+            <div><div class="k">Boot modes</div><div class="v">04</div></div>
+            <div><div class="k">Base</div><div class="v">Debian 12</div></div>
+            <div><div class="k">USB min</div><div class="v">8 GB</div></div>
+            <div><div class="k">License</div><div class="v">Open</div></div>
+          </div>
+        </div>
+
+        <!-- The memorable element: a live boot sequence terminal -->
+        <div class="term" id="bootTerm">
+          <div class="term__bar">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span>aurora@bootloader:~</span>
+            <span class="right">tty1</span>
+          </div>
+          <div class="term__body" id="bootLog"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MARQUEE -->
+    <div class="strip" aria-hidden="true">
+      <div class="strip__track">
+        <span><b>LUKS</b> encrypted persistence</span>
+        <span><b>RAM-only</b> amnesia</span>
+        <span><b>Tor</b> transparent proxy</span>
+        <span><b>nftables</b> kill-switch</span>
+        <span><b>Scoped</b> sudo</span>
+        <span><b>No</b> auto-lockout</span>
+        <span><b>GNOME</b> desktop</span>
+        <span><b>Debian bookworm</b> foundation</span>
+        <span><b>LUKS</b> encrypted persistence</span>
+        <span><b>RAM-only</b> amnesia</span>
+        <span><b>Tor</b> transparent proxy</span>
+        <span><b>nftables</b> kill-switch</span>
+        <span><b>Scoped</b> sudo</span>
+        <span><b>No</b> auto-lockout</span>
+        <span><b>GNOME</b> desktop</span>
+        <span><b>Debian bookworm</b> foundation</span>
+      </div>
+    </div>
+
+    <!-- MODES -->
+    <section class="section" id="modes">
+      <div class="marker reveal">§01 — Boot Modes <span class="coord">four choices · one stick</span></div>
+      <h2 class="section__title reveal">Four ways to boot. <em>You decide each time.</em></h2>
+      <p class="section__lede reveal">
+        Every power-on, the boot menu asks how private this session should be. Persistence and
+        Tor are independent flags, so you can keep them separate or combine them when the job
+        calls for it.
+      </p>
+      <div class="modes">
+        <article class="mode mode--persist reveal">
+          <div class="mode__tag"><span class="dot"></span> aurora.persistent</div>
+          <h3>Persistent</h3>
+          <p>Files, settings, and apps are written to an encrypted (LUKS) partition on the USB
+          and restored on the next boot. A genuine daily-use OS that travels with you.</p>
+          <div class="mode__specs">
+            <div><span>storage</span><b>LUKS2 · AES-256</b></div>
+            <div><span>KDF</span><b>Argon2id</b></div>
+            <div><span>survives reboot</span><b>yes</b></div>
+          </div>
+        </article>
+        <article class="mode mode--amnesic reveal">
+          <div class="mode__tag"><span class="dot"></span> aurora.amnesic</div>
+          <h3>Amnesic</h3>
+          <p>The whole OS runs from RAM. The instant you shut down, every byte evaporates.
+          Pull the stick and the host computer holds no trace you were ever there.</p>
+          <div class="mode__specs">
+            <div><span>storage</span><b>RAM only</b></div>
+            <div><span>survives reboot</span><b>no</b></div>
+            <div><span>host footprint</span><b>none</b></div>
+          </div>
+        </article>
+        <article class="mode mode--tor reveal">
+          <div class="mode__tag"><span class="dot"></span> aurora.tor</div>
+          <h3>Tor</h3>
+          <p>All traffic is forced through the Tor network in an amnesic session. A firewall
+          kill-switch drops anything that can't be torified, and DNS resolves over Tor.</p>
+          <div class="mode__specs">
+            <div><span>routing</span><b>transparent proxy</b></div>
+            <div><span>kill-switch</span><b>nftables</b></div>
+            <div><span>DNS</span><b>over-Tor</b></div>
+          </div>
+        </article>
+        <article class="mode mode--combo reveal">
+          <div class="mode__tag"><span class="dot"></span> aurora.persistent + aurora.tor</div>
+          <h3>Persistent + Tor</h3>
+          <p>Unlock encrypted persistence and apply Tor routing in the same session. Your files
+          survive reboot while network traffic goes through the kill-switch path.</p>
+          <div class="mode__specs">
+            <div><span>storage</span><b>encrypted</b></div>
+            <div><span>routing</span><b>Tor</b></div>
+            <div><span>amnesia</span><b>partial</b></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- FEATURES / MANIFEST -->
+    <section class="section--banded" id="features">
+      <div class="inner">
+        <div class="marker reveal">§02 — Manifest <span class="coord">what's loaded</span></div>
+        <h2 class="section__title reveal">A complete desktop on a <em>solid foundation.</em></h2>
+        <p class="section__lede reveal">
+          Built on Debian stable with a modern GNOME desktop and a curated,
+          privacy-first application set — modeled on Tails.
+        </p>
+        <div class="specs reveal">
+          <div class="specs__row"><span class="specs__num">01</span><span class="specs__name">GNOME Shell</span><span class="specs__desc">Modern desktop environment with Mutter compositor and GDM display manager.</span><span class="specs__cat">Desktop</span></div>
+          <div class="specs__row"><span class="specs__num">02</span><span class="specs__name">Thunderbird</span><span class="specs__desc">Email client with built-in OpenPGP encryption.</span><span class="specs__cat">Mail</span></div>
+          <div class="specs__row"><span class="specs__num">03</span><span class="specs__name">Tor Browser</span><span class="specs__desc">Fetched from the Tor Project and GPG-verified at build time for anonymous browsing.</span><span class="specs__cat">Privacy</span></div>
+          <div class="specs__row"><span class="specs__num">04</span><span class="specs__name">LibreOffice</span><span class="specs__desc">Full office suite — documents, spreadsheets, presentations.</span><span class="specs__cat">Office</span></div>
+          <div class="specs__row"><span class="specs__num">05</span><span class="specs__name">GNOME Secrets</span><span class="specs__desc">Encrypted, offline password manager (KeePass format) — same as Tails.</span><span class="specs__cat">Security</span></div>
+          <div class="specs__row"><span class="specs__num">06</span><span class="specs__name">GIMP</span><span class="specs__desc">Layered raster image editing.</span><span class="specs__cat">Media</span></div>
+          <div class="specs__row"><span class="specs__num">07</span><span class="specs__name">MAT2</span><span class="specs__desc">Metadata anonymisation — strips identifying data before you share.</span><span class="specs__cat">Privacy</span></div>
+          <div class="specs__row"><span class="specs__num">08</span><span class="specs__name">Encrypted messaging</span><span class="specs__desc">Pidgin (OTR) and Dino (OMEMO) chat, routed over Tor.</span><span class="specs__cat">Privacy</span></div>
+          <div class="specs__row"><span class="specs__num">09</span><span class="specs__name">Hardware firmware</span><span class="specs__desc">Wi-Fi, GPU, and CPU microcode bundled for broad machine support.</span><span class="specs__cat">System</span></div>
+          <div class="specs__row"><span class="specs__num">10</span><span class="specs__name">Scoped sudo</span><span class="specs__desc">The live user can run Aurora helpers, but not a blanket root shell that could disable Tor protection.</span><span class="specs__cat">Security</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACQUIRE / DOWNLOAD -->
+    <section class="section" id="download">
+      <div class="marker reveal">§03 — Acquisition Procedure <span class="coord">download → flash → boot</span></div>
+      <h2 class="section__title reveal">From download to bootable in <em>four steps.</em></h2>
+
+      <!-- Download CTA -->
+      <div class="dl reveal" id="dlBox">
+        <div class="dl__left">
+          <div class="dl__name">AuroraOS <span id="dlVer">v0.5</span> · amd64 ISO</div>
+          <div class="dl__sub" id="dlSub">
+            Prebuilt image — SHA256 <code id="dlSha">loading…</code>
+            · <a href="https://auroraos-download.rob74752.workers.dev/auroraos-0.1-amd64.iso.sha256">checksum</a>
+          </div>
+        </div>
+        <a class="btn btn--primary dl__btn" id="dlBtn" href="https://auroraos-download.rob74752.workers.dev/auroraos-0.1-amd64.iso" download>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+          <span id="dlBtnText">Download ISO</span>
+        </a>
+      </div>
+
+      <div class="proc reveal">
+        <div class="proc__step">
+          <div class="proc__num">01<small>DOWNLOAD</small></div>
+          <div class="proc__body">
+            <h4>Get the image</h4>
+            <p>Click <strong>Download ISO</strong> above to fetch the prebuilt AuroraOS image (~2.4 GB). Save it
+            somewhere you'll find it, then verify it against the published
+            <code>SHA256</code> checksum before flashing.</p>
+          </div>
+        </div>
+        <div class="proc__step">
+          <div class="proc__num">02<small>FLASH</small></div>
+          <div class="proc__body">
+            <h4>Write to USB</h4>
+            <p>Use <code>Rufus</code> (Windows) or <code>balenaEtcher</code> (any OS) to write the ISO onto a
+            USB stick of <strong>8 GB or more</strong>. This erases the stick — back it up first.</p>
+          </div>
+        </div>
+        <div class="proc__step">
+          <div class="proc__num">03<small>BOOT</small></div>
+          <div class="proc__body">
+            <h4>Power on &amp; choose</h4>
+            <p>Plug into any PC, enter the boot menu (F12 / F10 / Esc), and select AuroraOS. If the
+            custom boot menu appears, pick Amnesic, Persistent, Tor, or Persistent + Tor. Default user is
+            <code>aurora</code> (no password to log in), and auto-lock is disabled so it won't strand you.</p>
+          </div>
+        </div>
+        <div class="proc__step">
+          <div class="proc__num">04<small>PERSIST</small></div>
+          <div class="proc__body">
+            <h4>Enable persistence (optional)</h4>
+            <p>Once, from any boot, run <code>sudo aurora-persistent-setup</code>. You'll choose a
+            <strong>passphrase you must remember</strong> (there's no recovery). On the next Persistent-mode
+            boot, type it at the prompt to unlock your files.</p>
+          </div>
+        </div>
+      </div>
+
+      <p class="proc__note reveal">
+        Prefer to build it yourself? AuroraOS is built with Debian's <code>live-build</code> — the full
+        build configuration and <code>build.sh</code> are available in the source repository.
+      </p>
+    </section>
+
+    <!-- REFERENCE / COMMANDS -->
+    <section class="section--banded" id="docs">
+      <div class="inner">
+        <div class="marker reveal">§04 — Command Reference <span class="coord">operator quick-card</span></div>
+        <h2 class="section__title reveal">The commands you'll <em>actually run.</em></h2>
+        <div class="cmds">
+          <div class="cmd-block reveal">
+            <div class="cmd-block__hd"><span><b>$</b> build.sh</span><span>host</span></div>
+<pre><code><span class="c"># Inside WSL2/Ubuntu, project root</span>
+<span class="k">./build.sh</span>           <span class="c"># full build</span>
+<span class="k">./build.sh</span> clean     <span class="c"># wipe &amp; restart</span>
+<span class="k">./build.sh</span> config    <span class="c"># validate config only</span></code></pre>
+          </div>
+          <div class="cmd-block reveal">
+            <div class="cmd-block__hd"><span><b>aurora@</b> live shell</span><span>guest</span></div>
+<pre><code><span class="k">aurora-status</span>                  <span class="c"># show current mode</span>
+<span class="k">sudo</span> aurora-persistent-setup   <span class="c"># create persistent volume</span>
+<span class="k">sudo</span> aurora-set-password       <span class="c"># enable screen locking</span>
+<span class="k">aurora-tor</span> status             <span class="c"># show Tor kill-switch state</span>
+<span class="k">aurora-upgrade</span>                <span class="c"># install signed updates</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section" id="faq">
+      <div class="marker reveal">§05 — Operator Questions <span class="coord">caveats &amp; clarity</span></div>
+      <h2 class="section__title reveal">Frequently asked, <em>honestly answered.</em></h2>
+      <div class="faq reveal">
+        <details class="faq__item" open>
+          <summary><span><span class="q">Q1</span>Is this a replacement for Tails?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>No, and it doesn't claim to be. AuroraOS borrows Tails' ideas — amnesia and Tor routing — but is an independent, <strong>unaudited personal project</strong>. For genuine high-risk anonymity, use the real <a href="https://tails.net" target="_blank" rel="noopener">Tails</a>.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q2</span>Can I install it to a hard drive?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>AuroraOS is a <strong>live USB</strong> system by design — it runs from RAM and an optional encrypted partition on the stick itself. In Amnesic mode it doesn't write to the host's internal drives; like any OS it <em>can</em> see them if you choose to mount them.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q3</span>Is Tor mode guaranteed anonymous?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>No. It's configured in good faith (transparent proxy + firewall kill-switch + DNS-over-Tor) but <strong>has not been traffic-leak audited</strong>. Browser leaks, app telemetry, and fingerprinting can still de-anonymize you. Treat it as stronger than normal browsing, not magic.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q4</span>Can I turn Tor off from the terminal?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>Not as the normal live user. That is deliberate: if a desktop session is compromised, it should not be able to drop the kill-switch and leak your real IP. To leave Tor mode, reboot and choose Amnesic or Persistent.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q5</span>What hardware does it support?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>Any amd64 (64-bit x86) PC that boots from USB. AuroraOS includes UEFI Secure Boot support, but firmware can still be awkward; if boot fails, test with Secure Boot disabled.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q6</span>How is it actually built?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>With Debian's <code>live-build</code>, the same toolchain behind Tails, Kali, and Parrot. The repo holds the config; <code>build.sh</code> assembles a hybrid ISO.</p></div>
+        </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q7</span>How does it update?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>Like Tails — not with <code>apt</code>, but by replacing the whole system image with a <strong>cryptographically signed</strong> one. The built-in <strong>AuroraOS Upgrader</strong> notifies you when a new version exists; one click verifies the signature and SHA-256, then atomically swaps the image on the USB (keeping the old one as a rollback). In Tor mode the download routes over Tor. An unsigned or tampered update is <strong>refused</strong>.</p></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div class="footer__inner">
+        <div class="footer__top">
+          <div>
+            <div class="footer__brand"><span class="glyph">▲</span> AuroraOS</div>
+            <div class="footer__motto">Your private operating system, on a stick. Carry it. Boot it. Forget on command.</div>
+          </div>
+          <div class="footer__col"><h5>Product</h5><a href="#modes">Boot modes</a><a href="#features">Manifest</a><a href="#download">Acquire</a></div>
+          <div class="footer__col"><h5>Resources</h5><a href="#docs">Reference</a><a href="#faq">FAQ</a><a href="https://tails.net" target="_blank" rel="noopener">Tails ↗</a></div>
+          <div class="footer__col"><h5>Foundation</h5><a href="https://www.debian.org" target="_blank" rel="noopener">Debian ↗</a><a href="https://www.gnome.org" target="_blank" rel="noopener">GNOME ↗</a><a href="https://www.torproject.org" target="_blank" rel="noopener">Tor ↗</a></div>
+        </div>
+        <div class="footer__bot">
+          <span>// Personal &amp; educational project · not affiliated with Tails · not a security product</span>
+          <span id="year"></span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js?v=indigo5"></script>
+</body>
+</html>

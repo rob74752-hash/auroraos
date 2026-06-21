@@ -1,0 +1,180 @@
+#!/bin/bash
+# =============================================================================
+# AuroraOS — aurora-persistent-setup  (passphrase-based LUKS2 + Argon2id)
+# =============================================================================
+# Creates the encrypted Persistent volume on the USB stick. Run this ONCE from
+# a booted AuroraOS session to enable persistence.
+#
+# Security model (mirrors Tails):
+#   * LUKS2 container, AES-256-XTS (512-bit key => AES-256; cryptsetup's default
+#     256-bit key would only be AES-128, so we set --key-size 512 explicitly).
+#   * The unlock key is derived from a PASSPHRASE you choose, using Argon2id —
+#     a memory-hard KDF that makes GPU/ASIC brute-force expensive.
+#   * No keyfile is stored anywhere. The passphrase exists only in your head.
+#   * Strength is bounded only by passphrase strength — a weak passphrase can be
+#     cracked offline. Use 16+ random characters.
+#
+# Disk safety:
+#   * The new partition is carved out of the FREE SPACE after the live image
+#     using sgdisk's largest-free-block allocator. It never overlaps the ISO.
+#   * On any error we clean up (close the mapper / unmount) and leave the live
+#     medium bootable.
+# =============================================================================
+
+set -euo pipefail
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Please run with sudo:  sudo aurora-persistent-setup"
+    exit 1
+fi
+
+LABEL="AuroraPersistent"          # GPT partition name (PARTLABEL) + ext4 label
+MAPPER="aurora_persistent"
+MOUNTPOINT="/mnt/persistent"
+NEW_DEVICE=""
+
+cleanup() {
+    rc=$?
+    mountpoint -q "$MOUNTPOINT" 2>/dev/null && umount "$MOUNTPOINT" 2>/dev/null || true
+    [ -e "/dev/mapper/$MAPPER" ] && cryptsetup close "$MAPPER" 2>/dev/null || true
+    if [ "$rc" -ne 0 ]; then
+        echo
+        echo "ERROR: setup did not complete (exit $rc). The live USB is still"
+        echo "       bootable; no existing data was touched. You can re-run this tool."
+    fi
+}
+trap cleanup EXIT
+
+for tool in sgdisk cryptsetup mkfs.ext4 partprobe lsblk; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: required tool '$tool' not found."; exit 1; }
+done
+
+echo "=================================================="
+echo " AuroraOS Persistent Volume Setup"
+echo "=================================================="
+echo
+echo "This creates an ENCRYPTED (LUKS2) partition on your"
+echo "USB stick to hold files that survive reboot."
+echo
+echo "You will choose a PASSPHRASE. Remember it — there is"
+echo "NO recovery. If you forget it, your data is gone."
+echo
+
+# --- Find the USB we booted from ---------------------------------------------
+# Prefer the device backing the live medium mount; fall back to the AuroraOS
+# ISO volume label.
+BOOT_PART=""
+for mp in /run/live/medium /usr/lib/live/mount/medium /lib/live/mount/medium; do
+    if mountpoint -q "$mp" 2>/dev/null; then
+        BOOT_PART=$(findmnt -no SOURCE "$mp" 2>/dev/null || true)
+        [ -n "$BOOT_PART" ] && break
+    fi
+done
+if [ -z "$BOOT_PART" ]; then
+    BOOT_PART=$(blkid -L AURORAOS 2>/dev/null || true)
+fi
+if [ -z "$BOOT_PART" ]; then
+    echo "ERROR: could not detect the AuroraOS USB device."
+    echo "       Boot from the USB, then re-run this tool."
+    exit 1
+fi
+
+# Parent whole-disk of that partition (robust for sdX / nvmeXnY / mmcblkX).
+DISK=$(lsblk -npo pkname "$BOOT_PART" 2>/dev/null | head -1)
+if [ -z "$DISK" ]; then
+    echo "ERROR: could not determine the parent disk of $BOOT_PART."
+    exit 1
+fi
+[ "${DISK#/dev/}" = "$DISK" ] && DISK="/dev/$DISK"
+
+echo "Detected AuroraOS boot partition: $BOOT_PART"
+echo "Target disk for new partition   : $DISK"
+echo
+
+# Refuse if a Persistent volume already exists.
+if blkid -t PARTLABEL="$LABEL" >/dev/null 2>&1; then
+    echo "A partition named '$LABEL' already exists on this system."
+    echo "Persistence appears to be set up already. Aborting to avoid data loss."
+    exit 1
+fi
+
+echo "WARNING: this writes a new partition into the FREE SPACE of $DISK."
+echo "         Existing partitions (including the bootable image) are untouched,"
+echo "         but back up the USB first if it holds data you care about."
+echo
+read -r -p "Proceed? Type YES to continue: " CONFIRM
+if [ "$CONFIRM" != "YES" ]; then
+    echo "Aborted."
+    exit 1
+fi
+
+# --- Create the partition in the largest free block --------------------------
+# isohybrid images put the backup GPT header right after the image; move it to
+# the real end of the disk so the trailing free space becomes usable.
+echo "Allocating a new partition in free space on $DISK ..."
+sgdisk --move-second-header "$DISK" >/dev/null 2>&1 || true
+# -n 0:0:0  => next partition number, start at first free sector of the largest
+#              free block, end at the last sector of that block (fills it).
+# -t 0:8309 => Linux LUKS partition type.   -c 0:LABEL => GPT partition name.
+sgdisk -n 0:0:0 -t 0:8309 -c 0:"$LABEL" "$DISK" >/dev/null
+
+partprobe "$DISK" 2>/dev/null || partx -u "$DISK" 2>/dev/null || true
+udevadm settle 2>/dev/null || sleep 2
+
+# Resolve the device we just created by its GPT name.
+NEW_DEVICE=$(lsblk -prno NAME,PARTLABEL "$DISK" 2>/dev/null | awk -v l="$LABEL" '$2==l{print $1; exit}')
+if [ -z "$NEW_DEVICE" ] || [ ! -b "$NEW_DEVICE" ]; then
+    NEW_DEVICE=$(blkid -t PARTLABEL="$LABEL" -o device 2>/dev/null | head -1)
+fi
+if [ -z "$NEW_DEVICE" ] || [ ! -b "$NEW_DEVICE" ]; then
+    echo "ERROR: the new partition could not be located after creation."
+    exit 1
+fi
+echo "Created $NEW_DEVICE (labelled $LABEL)."
+
+# --- LUKS2 format: AES-256-XTS, Argon2id, passphrase-based (no stored key) ----
+echo
+echo "Now choose your encryption passphrase."
+echo "Use a long, random passphrase (16+ chars). It cannot be recovered."
+echo
+# --key-size 512 => 256-bit AES per XTS sub-key => AES-256.
+# Argon2 unlock memory kept at 512 MiB so low-RAM machines (and the amnesic
+# RAM-only session) can still unlock the volume at boot.
+cryptsetup luksFormat --batch-mode --type luks2 \
+    --cipher aes-xts-plain64 \
+    --key-size 512 \
+    --pbkdf argon2id \
+    --pbkdf-memory 524288 \
+    --pbkdf-parallel 4 \
+    --iter-time 3000 \
+    "$NEW_DEVICE"
+
+# Verify the passphrase opens it, then make the filesystem.
+cryptsetup open --type luks2 "$NEW_DEVICE" "$MAPPER"
+mkfs.ext4 -q -F -L "$LABEL" "/dev/mapper/$MAPPER"
+
+# --- Seed the persistent directory structure ---------------------------------
+mkdir -p "$MOUNTPOINT"
+mount "/dev/mapper/$MAPPER" "$MOUNTPOINT"
+mkdir -p "$MOUNTPOINT/home/aurora"/{Documents,Downloads,Persistent,.config,.local,.gnupg,.ssh}
+mkdir -p "$MOUNTPOINT/var/lib/apt/lists"
+mkdir -p "$MOUNTPOINT/etc/NetworkManager/system-connections"
+chown -R 1000:1000 "$MOUNTPOINT/home/aurora"
+# 700 on the home itself so no other local user (e.g. the Unsafe Browser's
+# 'clearnet' user) can read persistent files; 700 on the key stores too.
+chmod 700 "$MOUNTPOINT/home/aurora"
+chmod 700 "$MOUNTPOINT/home/aurora/.gnupg" "$MOUNTPOINT/home/aurora/.ssh"
+sync
+umount "$MOUNTPOINT"
+cryptsetup close "$MAPPER"
+
+echo
+echo "=================================================="
+echo " SUCCESS — Persistent volume created."
+echo "=================================================="
+echo
+echo "Encryption: LUKS2 / AES-256-XTS / Argon2id (passphrase-based)."
+echo "No key is stored on the USB — your passphrase is the only key."
+echo
+echo "Reboot and choose 'Persistent' from the boot menu."
+echo "You'll be prompted for your passphrase at boot to unlock it."

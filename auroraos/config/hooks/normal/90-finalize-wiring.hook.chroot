@@ -1,0 +1,189 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS chroot hook — finalize AuroraOS system wiring
+# =============================================================================
+# Runs inside the chroot, late in the build:
+#   1. Make all aurora helper scripts executable
+#   2. Append the AuroraOS tor config to /etc/tor/torrc (idempotent)
+#   3. Install the boot-mode systemd service (with a real console TTY so the
+#      Persistent passphrase prompt actually works)
+#   4. Install the Tor kill-switch services (early pre-network + re-assert).
+#      Tor is NOT auto-started — the user connects via the connection assistant.
+#   5. Graphical autologin for 'aurora'; scoped passwordless sudo
+#   6. Make sure tor does NOT run in non-Tor modes (privacy)
+# =============================================================================
+
+set -e
+
+echo "[aurora] Finalizing system wiring..."
+
+# 1. Make helper scripts executable (incl. the update tools in upgrade/).
+chmod +x /usr/local/lib/aurora/*.sh 2>/dev/null || true
+chmod +x /usr/local/lib/aurora/upgrade/* 2>/dev/null || true
+chmod +x /usr/local/bin/aurora-* 2>/dev/null || true
+chmod +x /usr/local/sbin/aurora-* 2>/dev/null || true
+
+# 2. Append tor config ONCE (guard against double-append on incremental builds).
+if [ -f /etc/tor/aurora-torrc.append ] && [ -f /etc/tor/torrc ]; then
+    if ! grep -q 'AuroraOS torrc additions' /etc/tor/torrc; then
+        cat /etc/tor/aurora-torrc.append >> /etc/tor/torrc
+        echo "[aurora] Appended AuroraOS settings to /etc/tor/torrc"
+    fi
+    # Bridge include directory. aurora-tor-set-bridges writes validated bridge
+    # lines here at runtime (Tails-style paste box). We wire up the %include NOW
+    # so the runtime helper only has to drop a file in. A comment-only
+    # 00-aurora-placeholder.conf is shipped via includes.chroot so the wildcard
+    # ALWAYS matches at least one file — direct-connect can never be broken by a
+    # tor build that treats a zero-match glob as an error. (mkdir is belt-and-
+    # suspenders in case the placeholder is ever absent.)
+    mkdir -p /etc/tor/bridges.conf.d
+    chmod 755 /etc/tor/bridges.conf.d
+    if ! grep -q 'AuroraOS bridge include' /etc/tor/torrc; then
+        printf '\n# AuroraOS bridge include (Tails-style runtime bridge config)\n%%include /etc/tor/bridges.conf.d/*.conf\n' >> /etc/tor/torrc
+    fi
+elif [ -f /etc/tor/aurora-torrc.append ]; then
+    echo "[aurora] WARNING: tor not installed; skipping torrc merge."
+fi
+
+# 3. Boot-mode service. Runs early, on the console TTY, BEFORE the display
+#    manager — so in Persistent mode the LUKS passphrase prompt from
+#    cryptsetup is visible and the user can actually type it. (A oneshot with
+#    no TTY, as before, could never read the passphrase.)
+cat > /etc/systemd/system/aurora-boot-mode.service <<'UNIT'
+[Unit]
+Description=AuroraOS boot mode selector (persistence/amnesia)
+# Run after udev + filesystems are ready (so the LUKS partition is visible and
+# cryptsetup works) but BEFORE the login prompt / display manager so the
+# passphrase prompt is the first thing the user sees.
+After=local-fs.target systemd-udevd.service
+Before=display-manager.service gdm.service getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/aurora/boot-mode.sh
+RemainAfterExit=yes
+# Give the unlock prompt a real terminal to read the passphrase from.
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=journal+console
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# 4a. EARLY kill-switch. Runs BEFORE any networking is configured (ordered ahead
+#     of network-pre.target, DefaultDependencies=no), so in Tor mode there is NO
+#     window where the real IP can leak — not via NetworkManager's connectivity
+#     check, NTP, or anything else. It applies ONLY the firewall and does NOT
+#     start Tor: connecting is the user's deliberate choice in the assistant.
+#     Gated on the kernel cmdline so it is a no-op in Amnesic/Persistent modes
+#     (where the transparent-proxy firewall would wrongly break normal networking).
+cat > /etc/systemd/system/aurora-tor-killswitch.service <<'UNIT'
+[Unit]
+Description=AuroraOS Tor kill-switch (fail-closed, applied before networking)
+DefaultDependencies=no
+After=local-fs.target
+Wants=network-pre.target
+Before=network-pre.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'if grep -qw aurora.tor /proc/cmdline; then /usr/local/lib/aurora/tor-mode.sh firewall; fi'
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# 4b. Re-assert the kill-switch once the network is fully up (belt-and-suspenders
+#     in case the early run raced udev/sysusers). Re-reads /proc/cmdline if
+#     /run/aurora-mode is missing so a hiccup can't silently leave Tor mode
+#     un-torified. STILL does not start Tor (firewall only).
+cat > /etc/systemd/system/aurora-tor-mode.service <<'UNIT'
+[Unit]
+Description=AuroraOS Tor kill-switch re-assert (after network is up)
+After=network-online.target aurora-boot-mode.service aurora-tor-killswitch.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'm=$(cat /run/aurora-mode 2>/dev/null); [ -z "$m" ] && grep -qw aurora.tor /proc/cmdline && m=tor; if [ "$m" = tor ]; then /usr/local/lib/aurora/tor-mode.sh firewall; fi'
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# 5a. Enable the AuroraOS services (with symlink fallback if systemctl can't
+#     talk to a running systemd inside the chroot).
+mkdir -p /etc/systemd/system/multi-user.target.wants
+for svc in aurora-boot-mode aurora-tor-killswitch aurora-tor-mode; do
+    systemctl enable "$svc.service" 2>/dev/null || \
+        ln -sf "/etc/systemd/system/$svc.service" \
+               "/etc/systemd/system/multi-user.target.wants/$svc.service"
+done
+
+# 5b. Graphical autologin for the live user.
+if [ -d /etc/gdm3 ]; then
+    cat > /etc/gdm3/daemon.conf <<'GDM'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=aurora
+WaylandEnable=true
+GDM
+fi
+
+# 5c. SCOPED passwordless sudo. The live user has NO password, so blanket
+#     NOPASSWD:ALL would let ANY compromised process become root and tear down
+#     the Tor kill-switch (instant deanonymization). Instead we whitelist ONLY
+#     safe admin helpers — each of which can only INCREASE protection (connect
+#     Tor, create the encrypted volume, apply a SIGNED update). Arbitrary root,
+#     a root shell, raw nft/iptables, and "stop Tor" are NOT permitted, so a
+#     hijacked session cannot disable the kill-switch or leak the real IP.
+#     To change modes you reboot (Tails-style), rather than dropping Tor live.
+cat > /etc/sudoers.d/aurora <<'SUDO'
+# AuroraOS — passwordless sudo ONLY for these safe helpers (see hook comment).
+Cmnd_Alias AURORA_SAFE = /usr/local/sbin/aurora-tor-connect, \
+                         /usr/local/sbin/aurora-tor-set-bridges, \
+                         /usr/local/sbin/aurora-set-password, \
+                         /usr/local/bin/aurora-persistent-setup, \
+                         /usr/local/lib/aurora/upgrade/aurora-upgrade-apply, \
+                         /usr/local/sbin/aurora-unsafe-browser-run, \
+                         /usr/local/sbin/aurora-camera
+# Defense-in-depth. Debian's global /etc/sudoers already sets env_reset +
+# secure_path, but make this drop-in self-contained so a PATH / LD_PRELOAD trick
+# can never reach the bare-name binaries (nft, modprobe, runuser, …) these
+# scripts call.
+Defaults!AURORA_SAFE   env_reset
+Defaults!AURORA_SAFE   secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# No env_keep: bridge lines are read from STDIN only (audit C1d/C3), so NO
+# user-controlled environment crosses sudo into these root helpers.
+aurora ALL=(root) NOPASSWD: AURORA_SAFE
+SUDO
+chmod 0440 /etc/sudoers.d/aurora
+visudo -cf /etc/sudoers.d/aurora >/dev/null 2>&1 || echo "[aurora] WARNING: sudoers syntax check failed"
+
+# 5d. Let the live user read the tor control cookie (so Tor Browser can drive
+#     the SYSTEM tor in Tor mode instead of starting its own conflicting one).
+getent group debian-tor >/dev/null 2>&1 && usermod -aG debian-tor aurora || true
+
+# 5e. Compile the dconf database so the no-auto-lock desktop defaults apply.
+dconf update 2>/dev/null || true
+
+# 6. Networking + display manager on; tor OFF by default (only Tor mode starts
+#    it, so the daemon doesn't run/listen in Amnesic/Persistent sessions).
+systemctl enable NetworkManager 2>/dev/null || true
+systemctl enable gdm3 2>/dev/null || true
+systemctl disable tor 2>/dev/null || true
+systemctl disable tor@default 2>/dev/null || true
+
+echo "[aurora] System wiring complete."

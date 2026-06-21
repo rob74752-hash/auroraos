@@ -1,0 +1,126 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — Tor connection assistant (shown at login in Tor mode)
+# =============================================================================
+# In Tor mode the kill-switch is already up (fail-closed) from early boot, so
+# NOTHING reaches the network except the Tor daemon's own connections — including
+# to any bridge you configure. Tor is deliberately NOT auto-started, so you can
+# choose to connect directly or set up a bridge first (useful where Tor is
+# censored). This dialog drives that choice, bootstraps the SYSTEM tor, and opens
+# Tor Browser once a circuit is established.
+#
+# BRIDGES (Tails-style): you paste bridge lines into the "Configure a bridge"
+# box; aurora-tor-set-bridges (root, via sudo) strictly validates each line and
+# runs `tor --verify-config` before installing them. The kill-switch stays up
+# the whole time, so nothing leaks while you're pasting. Bridges are amnesic —
+# gone on reboot — like Tails. Keep your lines in a text file in ~/Persistent.
+#
+# Cancelling leaves the machine OFFLINE (everything stays blocked) — never a
+# leak. You can reopen this from the app grid ("Connect to Tor") at any time.
+# =============================================================================
+
+# Only act in Tor mode; in other modes this is a no-op.
+[ "$(cat /run/aurora-mode 2>/dev/null)" = tor ] || exit 0
+
+SOCKS="127.0.0.1:9050"
+ZEN="zenity"
+BRIDGES_URL="https://bridges.torproject.org"
+
+# Is a Tor circuit usable right now?
+connected() {
+    curl -s --max-time 4 --socks5-hostname "$SOCKS" \
+         https://check.torproject.org/ >/dev/null 2>&1
+}
+
+open_browser() { exec /usr/local/bin/tor-browser; }
+
+# Already connected (assistant re-run after a successful connect) -> just browse.
+connected && open_browser
+
+# If the GUI toolkit is somehow unavailable, connect directly rather than
+# stranding the user offline with no way forward (still fail-closed underneath).
+if ! command -v "$ZEN" >/dev/null 2>&1; then
+    sudo aurora-tor-connect || true
+    connected && open_browser
+    exit 0
+fi
+
+INTRO="AuroraOS is in Tor mode.\n\nAll internet traffic is BLOCKED until you connect to Tor. Only Tor itself — and any bridge you configure — is allowed out, so your real IP cannot leak.\n\nHow would you like to connect?"
+
+# --- Tails-style in-session bridge configuration ------------------------------
+# The live user pastes bridge lines here; aurora-tor-set-bridges (root, via sudo)
+# strictly validates each line and runs `tor --verify-config` before installing
+# them. Empty input clears any previous bridge (connect direct). Cancel backs out
+# without touching Tor. See SECURITY-AUDIT.md (C1d/C3 resolved, Tails model) for
+# the accepted tradeoff.
+configure_bridge() {
+    # zenity --text-info --editable: editable text box, prints edited content to
+    # stdout. --filename=/dev/null => starts EMPTY (amnesic; paste fresh each
+    # session). The checkbox gives a confirmation step; Cancel/close returns
+    # non-zero so we bail without changing anything.
+    lines="$($ZEN --text-info --editable --title="Configure a bridge" \
+        --width=620 --height=360 --checkbox="Apply and close" \
+        --filename=/dev/null 2>/dev/null)" || return 1
+
+    # Pipe to the root helper. It re-validates each line and runs
+    # `tor --verify-config` before installing anything. Empty input removes any
+    # previously-set bridge (Tor connects direct).
+    printf '%s\n' "$lines" | sudo -n aurora-tor-set-bridges 2>/tmp/aurora-bridge-err
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        $ZEN --error --title="Bridge rejected" --width=520 \
+            --text="AuroraOS did NOT apply the bridge line(s).\n\nEither a line was not a valid bridge, or Tor's own parser rejected it (tor --verify-config). Nothing was changed — Tor is still configured exactly as before.\n\nDetail:\n$(cat /tmp/aurora-bridge-err 2>/dev/null)" \
+            2>/dev/null
+        rm -f /tmp/aurora-bridge-err
+        return 1
+    fi
+    rm -f /tmp/aurora-bridge-err
+    return 0
+}
+
+# Offer a bridge-line source, then the paste box. Returns 0 if a bridge was
+# applied and the user wants to connect now, 1 otherwise (so the loop can decide
+# whether to fall through to connect or go back to the menu).
+try_configure_bridge() {
+    if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null
+    elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null
+    elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null; fi
+    $ZEN --info --title="Get a bridge line first" --width=600 \
+        --text="Get a bridge line (any of):\n  • Open the \"Unsafe Browser\" (clearnet) and visit  $BRIDGES_URL  (copied to your clipboard)\n  • email bridges@torproject.org from a Gmail/Riseup address\n  • use another device\n\nExample:  obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0\n\nKeep your lines in a text file in ~/Persistent and paste them each session (like Tails). Press OK to open the paste box." \
+        2>/dev/null || return 1
+    configure_bridge || return 1
+    $ZEN --question --title="Bridge set" --width=460 \
+        --text="Bridge applied. Tor will use it.\n\nConnect to Tor now?" \
+        --ok-label="Connect" --cancel-label="Back to menu" 2>/dev/null
+}
+
+while : ; do
+    choice="$($ZEN --list --radiolist --title="Connect to Tor" \
+        --width=540 --height=320 --text="$INTRO" \
+        --print-column=2 --hide-column=2 \
+        --column="" --column="id" --column="Option" \
+        TRUE  connect "Connect to Tor (direct)" \
+        FALSE bridge  "Configure a bridge  (use if Tor is blocked/censored here)" \
+        2>/dev/null)" || exit 0   # Cancel/close -> stay offline (still blocked)
+
+    # "bridge" may or may not lead to a connect. try_configure_bridge returns 0
+    # only when the user applied a bridge AND chose "Connect now".
+    [ "$choice" = "bridge" ] && { try_configure_bridge || continue; }
+
+    # Bootstrap with a pulsing progress dialog. aurora-tor-connect applies the
+    # kill-switch (idempotent) and starts Tor with whatever bridge, if any, was
+    # configured via the paste box (or none, for a direct connect).
+    sudo -n aurora-tor-connect 2>&1 | $ZEN --progress --pulsate --auto-close --no-cancel \
+              --title="Connecting to Tor" \
+              --text="Establishing a Tor circuit…\n(all other traffic stays blocked until this succeeds)" \
+              --width=480 2>/dev/null
+
+    if connected; then
+        open_browser   # execs Tor Browser; does not return
+    fi
+
+    # Didn't connect: explain and loop back so the user can try a bridge.
+    $ZEN --error --width=480 --title="Could not connect to Tor" \
+        --text="Tor did not connect.\n\nIf Tor is blocked on this network, choose \"Configure a bridge\" and try again.\n\nYour real IP was NOT exposed — all traffic stayed blocked the whole time." \
+        2>/dev/null
+done

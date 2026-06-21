@@ -1,0 +1,184 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS chroot hook — install Tor Browser (GPG-verified, from the Tor Project)
+# =============================================================================
+# Tor Browser is NOT packaged in Debian; the Tor Project ships it directly. We
+# download the official tarball AND its detached OpenPGP signature, then verify
+# the signature against the PINNED "Tor Browser Developers" key fingerprint
+# before extracting anything. This is the security boundary — HTTPS alone is not
+# trusted. If verification (or download) fails, the BUILD ABORTS (exit 1): we
+# never bake an unverified or missing browser into the image, and we never ship
+# an ISO that advertises a Tor Browser it doesn't actually contain.
+#
+# Runs INSIDE the chroot during the chroot build phase.
+# =============================================================================
+
+set -eu
+
+BROWSER_DIR="/usr/local/share/tor-browser"
+# Bump when a new Tor Browser stable ships.
+TOR_VERSION="15.0.16"
+BASE="https://www.torproject.org/dist/torbrowser/${TOR_VERSION}"
+TARBALL="tor-browser-linux-x86_64-${TOR_VERSION}.tar.xz"
+URL="${BASE}/${TARBALL}"
+SIG_URL="${URL}.asc"
+
+# The Tor Browser Developers signing key fingerprint. THIS is the trust anchor.
+# https://support.torproject.org/tbb/how-to-verify-signature/
+TB_FPR="EF6E286DDA85EA2A4BA7DE684E2C6E8793298290"
+
+echo "[aurora] Installing Tor Browser ${TOR_VERSION} (GPG-verified)..."
+
+command -v gpg  >/dev/null 2>&1 || { echo "[aurora] FATAL: gpg not installed in chroot."; exit 1; }
+command -v gpgv >/dev/null 2>&1 || true
+
+WORK="$(mktemp -d)"
+GNUPGHOME="$(mktemp -d)"; export GNUPGHOME
+chmod 700 "$GNUPGHOME"
+cleanup() { rm -rf "$WORK" "$GNUPGHOME"; }
+trap cleanup EXIT
+
+# --- Fetch the signing key by its pinned fingerprint -------------------------
+# Receiving by fingerprint means the keyservers cannot substitute a different
+# key; we additionally assert the imported key carries exactly that fingerprint.
+got_key=0
+for ks in "hkps://keys.openpgp.org" "hkps://keyserver.ubuntu.com"; do
+    if gpg --batch --keyserver "$ks" --recv-keys "$TB_FPR" 2>/dev/null; then
+        got_key=1; break
+    fi
+done
+if [ "$got_key" -ne 1 ]; then
+    # Fallback: fetch the key over HTTPS by fingerprint and import it.
+    if curl -fsSL "https://keys.openpgp.org/vks/v1/by-fingerprint/${TB_FPR}" \
+            -o "$WORK/tb-key.asc" && gpg --batch --import "$WORK/tb-key.asc" 2>/dev/null; then
+        got_key=1
+    fi
+fi
+[ "$got_key" -eq 1 ] || { echo "[aurora] FATAL: could not obtain the Tor Browser signing key."; exit 1; }
+
+# Assert the keyring actually contains the pinned fingerprint.
+gpg --batch --fingerprint "$TB_FPR" >/dev/null 2>&1 \
+    || { echo "[aurora] FATAL: pinned key fingerprint not present after import."; exit 1; }
+
+# --- Download tarball + detached signature -----------------------------------
+echo "[aurora]   downloading $TARBALL and its signature..."
+wget --timeout=300 --tries=3 -q -O "$WORK/$TARBALL" "$URL" \
+    || { echo "[aurora] FATAL: download of Tor Browser failed."; exit 1; }
+wget --timeout=120 --tries=3 -q -O "$WORK/$TARBALL.asc" "$SIG_URL" \
+    || { echo "[aurora] FATAL: download of Tor Browser signature failed."; exit 1; }
+
+# --- Verify: signature must be valid AND made by the pinned key --------------
+if ! gpg --batch --status-fd=1 --verify "$WORK/$TARBALL.asc" "$WORK/$TARBALL" 2>/dev/null \
+        | grep -q "VALIDSIG.*${TB_FPR}"; then
+    echo "[aurora] FATAL: Tor Browser signature verification FAILED."
+    echo "[aurora]        Refusing to install an unverified bundle. Build aborted."
+    exit 1
+fi
+echo "[aurora]   signature OK (signed by Tor Browser Developers ${TB_FPR})."
+
+# --- Install ------------------------------------------------------------------
+rm -rf "$BROWSER_DIR"
+mkdir -p "$BROWSER_DIR"
+tar -C "$BROWSER_DIR" -xf "$WORK/$TARBALL" --strip-components=1
+
+# Own it to the live user (uid 1000) so Tor Browser can both RUN and write its
+# profile/Tor data inside its own folder — without a runtime chown. (Root
+# ownership was why clicking it did nothing.)
+chown -R 1000:1000 "$BROWSER_DIR"
+
+# Real runnable launcher that is Tor-mode-aware. In Tor mode the system already
+# runs Tor (transparent proxy + kill switch); Tor Browser must NOT start its own
+# conflicting tor, so we point it at the SYSTEM tor (SOCKS 9050 + control 9051,
+# cookie readable via the debian-tor group). In any other mode it launches its
+# own tor normally and shows the Connect screen (with bridge support).
+cat > /usr/local/bin/tor-browser <<'LAUNCH'
+#!/bin/sh
+TBB=/usr/local/share/tor-browser/Browser
+if [ "$(cat /run/aurora-mode 2>/dev/null)" = tor ]; then
+    # The system Tor must be connected first. If it isn't, hand off to the
+    # connection assistant (Connect / configure a bridge) rather than opening a
+    # browser that can't reach anything — the kill-switch is blocking everything.
+    if ! curl -s --max-time 3 --socks5-hostname 127.0.0.1:9050 \
+            https://check.torproject.org/ >/dev/null 2>&1; then
+        exec /usr/local/bin/aurora-tor-assistant
+    fi
+    export TOR_SKIP_LAUNCH=1
+    export TOR_SOCKS_HOST=127.0.0.1 TOR_SOCKS_PORT=9050
+    export TOR_CONTROL_HOST=127.0.0.1 TOR_CONTROL_PORT=9051
+    export TOR_CONTROL_COOKIE_AUTH_FILE=/run/tor/control.authcookie
+fi
+exec "$TBB/start-tor-browser" --detach "$@"
+LAUNCH
+chmod +x /usr/local/bin/tor-browser
+
+# --- Pluggable transports for the SYSTEM tor (so bridges actually work) -------
+# lyrebird (from this GPG-verified bundle) speaks webtunnel + obfs4 + meek_lite;
+# conjure-client speaks Conjure. obfs4 itself uses the Debian obfs4proxy package
+# and snowflake uses the Debian snowflake-client package. We copy/symlink them to
+# stable paths that /etc/tor/torrc's ClientTransportPlugin lines reference.
+PT_SRC="$BROWSER_DIR/Browser/TorBrowser/Tor/PluggableTransports"
+for bin in lyrebird conjure-client; do
+    if [ -x "$PT_SRC/$bin" ]; then
+        install -m 0755 "$PT_SRC/$bin" "/usr/local/bin/$bin"
+        echo "[aurora]   installed pluggable transport: /usr/local/bin/$bin"
+    else
+        echo "[aurora]   WARNING: pluggable transport '$bin' missing from the bundle."
+    fi
+done
+SNOW="$(command -v snowflake-client 2>/dev/null || true)"
+if [ -n "$SNOW" ]; then ln -sf "$SNOW" /usr/local/bin/snowflake-client
+else echo "[aurora]   WARNING: snowflake-client package not installed."; fi
+
+# --- Tor Browser defaults: "Safest" security level + geolocation OFF ----------
+# Placed in the default profile so every launch STARTS at Safest; the user can
+# still lower it via the shield menu during the session (it's not locked).
+TB_PROFILE="$BROWSER_DIR/Browser/TorBrowser/Data/Browser/profile.default"
+mkdir -p "$TB_PROFILE"
+cat > "$TB_PROFILE/user.js" <<'PREFS'
+// AuroraOS — Tor Browser defaults (changeable by the user at runtime).
+// Security Level = Safest  (1 = Safest, 2 = Safer, 4 = Standard).
+user_pref("browser.security_level.security_slider", 1);
+user_pref("extensions.torbutton.security_slider", 1);
+// Geolocation fully off in the browser (the OS has no geoclue anyway).
+user_pref("geo.enabled", false);
+user_pref("geo.provider.network.url", "");
+user_pref("permissions.default.geo", 2);
+// Camera & microphone: BLOCK by default (2) — defense-in-depth on top of the OS
+// keeping the hardware off. A user who really needs them can change the per-site
+// permission in the browser.
+user_pref("permissions.default.camera", 2);
+user_pref("permissions.default.microphone", 2);
+PREFS
+chown -R 1000:1000 "$BROWSER_DIR/Browser/TorBrowser/Data" 2>/dev/null || true
+echo "[aurora]   Tor Browser default security level set to Safest."
+
+# Icon: copy Tor Browser's real icon to a stable path (the previous hard-coded
+# path didn't exist in this version, so the grid entry had no picture).
+ICON_SRC=""
+for c in browser/chrome/icons/default/default128.png \
+         browser/chrome/icons/default/default48.png \
+         chrome/icons/default/default128.png; do
+    [ -f "$BROWSER_DIR/Browser/$c" ] && ICON_SRC="$BROWSER_DIR/Browser/$c" && break
+done
+if [ -n "$ICON_SRC" ]; then
+    mkdir -p /usr/share/pixmaps
+    cp "$ICON_SRC" /usr/share/pixmaps/torbrowser.png
+    DESK_ICON="/usr/share/pixmaps/torbrowser.png"
+else
+    DESK_ICON="web-browser"   # fallback to a generic system icon
+fi
+
+# Desktop entry (appears in the GNOME app grid).
+mkdir -p /usr/share/applications
+cat > /usr/share/applications/torbrowser.desktop <<DESK
+[Desktop Entry]
+Type=Application
+Name=Tor Browser
+Comment=Anonymous browsing via the Tor network
+Exec=/usr/local/bin/tor-browser
+Icon=$DESK_ICON
+Categories=Network;WebBrowser;
+Terminal=false
+DESK
+
+echo "[aurora] Tor Browser installed and verified at $BROWSER_DIR"

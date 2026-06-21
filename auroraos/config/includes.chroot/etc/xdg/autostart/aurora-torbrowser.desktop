@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraOS Tor connection assistant (Tor mode)
+Comment=In Tor mode, connect to Tor (direct or via a bridge); opens Tor Browser once connected
+Exec=/usr/local/bin/aurora-tor-assistant
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+# Short delay: this is effectively the "connect to Tor" step that follows the
+# GNOME Initial Setup wizard (language -> keyboard -> Wi-Fi). Appear promptly
+# after the wizard so it reads as the next step, not a separate thing.
+X-GNOME-Autostart-Delay=2

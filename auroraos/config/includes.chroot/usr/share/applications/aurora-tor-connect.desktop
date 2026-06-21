@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Connect to Tor
+Comment=Connect to the Tor network, or configure a bridge if Tor is blocked
+Exec=/usr/local/bin/aurora-tor-assistant
+Icon=network-vpn
+Categories=Network;Security;
+Keywords=tor;bridge;anonymity;privacy;connect;
+Terminal=false

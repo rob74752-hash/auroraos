@@ -1,0 +1,23 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-tor-connect  (root; whitelisted for passwordless sudo)
+# =============================================================================
+# Brings UP Tor mode: applies the kill-switch firewall and starts Tor. This is
+# the ONLY Tor control action the live user may run without a real password.
+#
+# There is deliberately NO "stop" here. Disabling the kill-switch must require
+# genuine root (which the live user does not have), so a compromised session
+# cannot tear down Tor and deanonymize you. To leave Tor mode, reboot.
+#
+# SECURITY (audit C1d/C3): this script does NOT configure bridges — it only
+# starts Tor with whatever is already in torrc (including any bridges the user
+# applied via aurora-tor-set-bridges, the Tails-style paste box). Bridge lines
+# are validated per-line and approved by `tor --verify-config` before install,
+# and are read from STDIN only (never an env var), closing the old C3 injection
+# vector. See SECURITY-AUDIT.md for the accepted Tails-model tradeoff.
+# =============================================================================
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "run via: sudo aurora-tor-connect"; exit 1; }
+
+exec /usr/local/lib/aurora/tor-mode.sh start

@@ -1,0 +1,28 @@
+# AuroraOS — never commit signing keys or build artifacts.
+
+# Update signing keypair (the PRIVATE key must stay secret and offline).
+signing/
+*.key
+
+# Build tree / output (ISOs, checksums, and ALL build/upload/publish logs)
+build-output/
+.wrangler/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Node (download-proxy / website tooling)
+node_modules/
+
+# Internal RAW security audit (root copy) — contains the live R2 secret in
+# plaintext. NEVER publish. The leading slash anchors this to the repo root so
+# the SANITIZED, redacted public copy at docs/SECURITY-AUDIT.md IS published.
+/SECURITY-AUDIT.md
+
+# Stray Windows artifacts
+nul
+
+# Local env / creds
+.env
+*.local
