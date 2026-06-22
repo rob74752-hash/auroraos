@@ -25,7 +25,12 @@ echo ""
 
 # Direct upload of the static site. If the project doesn't exist yet, wrangler
 # creates it on first deploy.
-npx wrangler pages deploy . --project-name="$PROJECT"
+#
+# --branch=main is REQUIRED to publish to the PRODUCTION URL (auroraos.pages.dev).
+# Without it, wrangler infers the branch from git; any non-production branch
+# (e.g. a fixes/* working branch) deploys to a *preview* URL instead, so the
+# real site silently doesn't update. Pin it to main so a deploy always ships.
+npx wrangler pages deploy . --project-name="$PROJECT" --branch=main
 
 echo ""
 echo "[aurora-web] Deploy complete."
