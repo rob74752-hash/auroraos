@@ -19,9 +19,25 @@ $ZEN --question --title="Unsafe Browser" --width=480 \
      --text="$WARN" 2>/dev/null || exit 0
 
 # Grant ONLY the clearnet user access to this X display (XWayland); revoke on exit.
+# Make sure XWayland is actually up first: on a fresh GNOME Wayland session no X
+# server may be running yet, so the xhost grant (and the browser's X connection)
+# would silently fail. `xset q` nudges XWayland into starting if it isn't.
 DISP="${DISPLAY:-:0}"
+export DISPLAY="$DISP"
+xset q >/dev/null 2>&1 || true
 xhost "+SI:localuser:clearnet" >/dev/null 2>&1
 trap 'xhost "-SI:localuser:clearnet" >/dev/null 2>&1 || true' EXIT INT TERM HUP
 
 # Privileged: open firewall exemption -> sandboxed clearnet browser -> close it.
-sudo -n /usr/local/sbin/aurora-unsafe-browser-run "$DISP"
+# Capture stderr so that if the browser fails to appear, the user gets a clear,
+# reportable error instead of "nothing happens" — this launcher is GUI-only, so
+# the runner's stderr would otherwise be discarded.
+ERRLOG="$(mktemp /tmp/aurora-unsafe.XXXXXX 2>/dev/null || echo /tmp/aurora-unsafe.log)"
+sudo -n /usr/local/sbin/aurora-unsafe-browser-run "$DISP" 2>"$ERRLOG"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    $ZEN --error --title="Unsafe Browser failed to start" --width=560 \
+        --text="The Unsafe Browser could not start (exit code $rc).\n\nError detail:\n\n$(tail -n 20 "$ERRLOG" 2>/dev/null)" \
+        2>/dev/null
+fi
+rm -f "$ERRLOG"

@@ -212,9 +212,38 @@ keeping the previous image as a rollback. In Tor mode the download goes over Tor
   `aurora-upgrade` in a terminal. Reboot to use the new version.
 - The signature is the trust anchor: an update that isn't signed by the AuroraOS
   Update key is **refused**, even over HTTPS. Downgrades are refused too.
-- In-place upgrades require a **writable** install. A plain dd-flashed ISO is
-  read-only, so the upgrader will tell you to re-flash the latest ISO instead
-  (your encrypted Persistent partition is separate and carries over).
+- In-place upgrades require a **writable** install. A plain dd-flashed ISO
+  (balenaEtcher / Rufus DD mode) is read-only, so the upgrader can't write to
+  it — **this is expected, not a malfunction.** It will tell you to re-flash the
+  latest ISO instead. **Before you re-flash, back up Persistent storage first**
+  (see below).
+
+### Before you re-flash: back up Persistent
+
+Re-flashing the USB **rewrites its partition table.** Your encrypted Persistent
+partition was added into the free space *after* the boot image, so re-flashing
+can leave it **unreferenced** — the data is still physically on the stick, but
+AuroraOS may not find it afterward without manual `gdisk` recovery. So if you use
+persistence, back it up before re-flashing:
+
+1. Boot **Persistent** and unlock your volume.
+2. Plug in a second drive with space, then copy your data to it:
+   ```bash
+   # Replace /media/aurora/BACKUP with your destination drive's mount path
+   rsync -a --info=progress2 ~/Persistent ~/Documents ~/Downloads /media/aurora/BACKUP/
+   ```
+   Keys (`~/.gnupg`, `~/.ssh`) are sensitive — back them up to an **encrypted**
+   destination (another LUKS volume), or make an encrypted archive:
+   ```bash
+   tar -czf - ~/.gnupg ~/.ssh | gpg -c > /media/aurora/BACKUP/keys.tar.gz.gpg
+   ```
+3. Re-flash the new ISO, then run `sudo aurora-persistent-setup` again and copy
+   your files back.
+
+> This re-flash-loses-the-reference behavior is the main downside of a read-only
+> ISO. AuroraOS keeps the ISO (a read-only system image can't be tampered with at
+> rest) and asks you to back up rather than shipping a writable image. If that
+> tradeoff ever flips, this section will change.
 
 **As the publisher (you, if you host your own channel):**
 

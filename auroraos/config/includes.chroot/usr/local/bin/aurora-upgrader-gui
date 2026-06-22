@@ -147,10 +147,11 @@ class Upgrader(Gtk.Window):
         elif rc == 0 and result == "manual-required":
             self.progress.set_fraction(0.0)
             self.status.set_markup(
-                "<b>This USB is read-only</b> (flashed with balenaEtcher / dd), so it\n"
-                "can't be updated in place. To update: download the latest ISO from\n"
-                "auroraos.pages.dev and re-flash. Your encrypted Persistent\n"
-                "partition is NOT affected.")
+                "<b>This USB is read-only</b> (flashed with balenaEtcher / dd), so the\n"
+                "in-place updater can't write to it — <b>this is normal, not a fault.</b>\n"
+                "To update: download the latest ISO from auroraos.pages.dev and re-flash.\n"
+                "<b>If you use Persistent storage, back it up first</b> — re-flashing can\n"
+                "detach the Persistent partition (see “Before you re-flash” in the README).")
         elif rc == 0:
             self.progress.set_fraction(1.0)
             self.status.set_text("No update was applied (already up to date).")

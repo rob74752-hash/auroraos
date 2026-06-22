@@ -82,14 +82,20 @@ SQUASHFS="$MEDIUM/live/filesystem.squashfs"
 if [ "$FSTYPE" = "iso9660" ] || ! mount -o remount,rw "$MEDIUM" 2>/dev/null; then
     cat >&2 <<EOF
 
-[aurora-upgrade] This AuroraOS USB is a read-only (dd / balenaEtcher-flashed)
-                 image, so the in-place upgrade cannot write to it. Do a MANUAL
-                 upgrade:
+[aurora-upgrade] This is normal, NOT an error. Your AuroraOS USB was flashed
+                 with balenaEtcher / Rufus (dd mode), so the system files live
+                 on a READ-ONLY filesystem and the in-place updater has nothing
+                 it can write to. To move to AuroraOS $LATEST, do a MANUAL upgrade:
 
-   1. Download the latest ISO from https://auroraos.pages.dev
-   2. Re-flash your USB with balenaEtcher / Rufus.
-   3. Your encrypted Persistent volume is on a SEPARATE partition and is NOT
-      touched by re-flashing — it carries over.
+   1. IF YOU USE PERSISTENT STORAGE, BACK IT UP FIRST. Re-flashing rewrites the
+      USB's partition table, which can detach your encrypted Persistent
+      partition — the data stays on the stick, but AuroraOS may no longer find
+      it without manual recovery. From a Persistent session, copy ~/Persistent,
+      ~/Documents and ~/Downloads (and ~/.gnupg, ~/.ssh if you use them) to
+      another drive. See "Before you re-flash" in the README.
+   2. Download the latest ISO from https://auroraos.pages.dev
+   3. Re-flash your USB with balenaEtcher / Rufus.
+   4. Re-run 'sudo aurora-persistent-setup' and copy your backup back.
 
 EOF
     # Machine-readable result so the GUI/CLI show the correct "re-flash" guidance
