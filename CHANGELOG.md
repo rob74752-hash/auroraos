@@ -1,5 +1,26 @@
 # AuroraOS changelog
 
+## v0.57 — 2026-06-22
+
+**Fixes**
+- **Unsafe Browser now actually opens a window.** With v0.56's execute-permission
+  fix in place, the browser got far enough to crash during graphics init
+  (`RenderCompositorSWGL failed mapping default framebuffer`): the bubblewrap
+  sandbox built a fresh `/dev` with **no `/dev/shm`**, and Firefox needs
+  `/dev/shm` for its software compositor's framebuffers. The sandbox now mounts a
+  private `/dev/shm` tmpfs.
+- **Tor bridges with a `url=` value are accepted again** (webtunnel / snowflake).
+  The bridge-line validator's allowed-character set for arguments didn't include
+  `/`, so every bridge carrying a `url=https://…` (i.e. essentially every
+  webtunnel and snowflake bridge) was rejected as "invalid" — which is why *every*
+  bridge appeared to fail. The set now permits URL punctuation. The validator also
+  now accepts a leading `Bridge ` keyword and hostname-based (non-IP) bridges.
+  Injection protection and `tor --verify-config` as the final authority are
+  unchanged.
+- **Bridge flow announces the clipboard copy.** When the bridges website address
+  is copied to the clipboard, the dialog now says so (only when the copy actually
+  succeeded), instead of copying silently.
+
 ## v0.56 — 2026-06-22
 
 **Fixes**
