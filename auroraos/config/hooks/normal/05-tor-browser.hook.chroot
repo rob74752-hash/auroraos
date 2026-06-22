@@ -86,6 +86,15 @@ tar -C "$BROWSER_DIR" -xf "$WORK/$TARBALL" --strip-components=1
 # ownership was why clicking it did nothing.)
 chown -R 1000:1000 "$BROWSER_DIR"
 
+# The Unsafe Browser runs THIS same Firefox as the separate, sandboxed 'clearnet'
+# user (captive-portal sign-in). The Tor Project ships the bundle mode 0700, so
+# after the chown above ONLY uid 1000 (aurora) can execute it — which is exactly
+# why bwrap reported "execvp .../firefox: Permission denied" for clearnet. Make
+# the PROGRAM tree world-traversable + executable so clearnet can launch it. The
+# browsing-data profile dir is re-locked to its owner further below, so this does
+# NOT expose aurora's Tor Browser profile to the clearnet user.
+chmod -R a+rX "$BROWSER_DIR"
+
 # Real runnable launcher that is Tor-mode-aware. In Tor mode the system already
 # runs Tor (transparent proxy + kill switch); Tor Browser must NOT start its own
 # conflicting tor, so we point it at the SYSTEM tor (SOCKS 9050 + control 9051,
@@ -150,6 +159,12 @@ user_pref("permissions.default.camera", 2);
 user_pref("permissions.default.microphone", 2);
 PREFS
 chown -R 1000:1000 "$BROWSER_DIR/Browser/TorBrowser/Data" 2>/dev/null || true
+# Re-lock the browsing-data profile to its owner. The `a+rX` above made the
+# bundle world-readable so the clearnet user can EXECUTE Firefox — but the Data
+# dir holds the (live, amnesic) Tor Browser profile, which the non-anonymous
+# clearnet user must NOT be able to read. The Unsafe Browser uses its own
+# separate profile, so locking this down does not affect it.
+chmod -R go-rwx "$BROWSER_DIR/Browser/TorBrowser/Data" 2>/dev/null || true
 echo "[aurora]   Tor Browser default security level set to Safest."
 
 # Icon: copy Tor Browser's real icon to a stable path (the previous hard-coded
