@@ -1,5 +1,23 @@
 # AuroraOS changelog
 
+## v0.56 — 2026-06-22
+
+**Fixes**
+- **Unsafe Browser now launches.** The Tor Project ships the Tor Browser bundle
+  mode `0700`, so the sandboxed `clearnet` user that runs the Unsafe Browser
+  could not execute Firefox (`bwrap: execvp … Permission denied`) — clicking
+  "Start Unsafe Browser" did nothing. The program tree is now made
+  world-executable, while the Tor Browser profile dir is re-locked to its owner
+  so the non-anonymous clearnet user still can't read it. The launcher also
+  nudges XWayland up and now shows a real error dialog instead of failing
+  silently.
+- **Updater messaging / persistence honesty.** A read-only (balenaEtcher/dd)
+  stick can't update in place — the message now says this is *expected* and
+  warns to **back up Persistent before re-flashing**, because re-flashing
+  rewrites the partition table and can detach the encrypted Persistent
+  partition. Corrected the misleading README claim that persistence "carries
+  over" a re-flash, and added a backup procedure.
+
 ## v0.55 — 2026-06-21
 
 **New**
