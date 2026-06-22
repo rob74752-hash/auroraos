@@ -25,6 +25,7 @@ PURGE="gnome-software gnome-software-common gnome-software-plugin-flatpak \
        chrome-gnome-shell gnome-browser-connector \
        gnome-extensions-app gnome-shell-extension-prefs \
        totem totem-plugins rhythmbox rhythmbox-plugins \
+       gnome-packagekit gnome-packagekit-data \
        gnome-online-accounts"
 # Notes on the additions:
 #   chrome-gnome-shell / gnome-browser-connector — the native host that lets
@@ -34,6 +35,11 @@ PURGE="gnome-software gnome-software-common gnome-software-plugin-flatpak \
 #   totem / rhythmbox — a video player and a music player; Tails ships NEITHER
 #     (media parsers are a classic exploit surface). Brasero + Sound Juicer stay
 #     (Tails includes those).
+#   gnome-packagekit — the PackageKit update viewer (gpk-update-viewer). It is
+#     what pops the "All updates are complete." dialog. AuroraOS updates ONLY via
+#     its own signed image-swap (aurora-upgrade), never apt/PackageKit, so this
+#     UI is both confusing and pointless here. Removing it kills that dialog; the
+#     daemon is masked below in case it lingers as another package's dependency.
 
 # Every GNOME game EXCEPT gnome-nibbles (which stays).
 GAMES="aisleriot four-in-a-row gnome-chess gnome-klotski gnome-mahjongg \
@@ -49,6 +55,12 @@ done
 
 # Drop now-orphaned dependencies (e.g. packagekit once gnome-software is gone).
 apt-get -y --purge autoremove 2>/dev/null || true
+
+# PackageKit: AuroraOS never updates via apt/PackageKit (only via its own signed
+# aurora-upgrade image-swap), so stop the daemon from ever running a background
+# update check — that check is what triggered the stray "All updates are
+# complete." dialog. Masking is harmless if the package is already gone above.
+systemctl mask packagekit.service packagekit-offline-update.service 2>/dev/null || true
 
 # Belt-and-suspenders: even if geoclue is somehow reinstalled, neuter it.
 systemctl mask geoclue.service 2>/dev/null || true

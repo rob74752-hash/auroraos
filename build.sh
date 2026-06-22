@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_DIR="$SCRIPT_DIR/auroraos"
 BUILD_DIR="/home/user/auroraos-build"
 OUTPUT_DIR="$SCRIPT_DIR/build-output"
-VERSION="0.5"                                   # keep in sync with 10-branding.hook
+VERSION="0.55"                                  # keep in sync with 10-branding.hook
 OUT_ISO="auroraos-${VERSION}-amd64.iso"         # canonical name used by site/Worker
 
 # Reproducible-ish builds: derive a stable timestamp from the source tree so

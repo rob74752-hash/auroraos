@@ -6,7 +6,8 @@ Exec=/usr/local/bin/aurora-tor-assistant
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-# Short delay: this is effectively the "connect to Tor" step that follows the
-# GNOME Initial Setup wizard (language -> keyboard -> Wi-Fi). Appear promptly
-# after the wizard so it reads as the next step, not a separate thing.
+# Short delay before the assistant script starts. The script itself then waits
+# for the GNOME Initial Setup wizard (language -> keyboard -> Wi-Fi) to finish
+# before showing anything, so the "connect to Tor" step reads as the NEXT step
+# after the wizard rather than popping up on top of it.
 X-GNOME-Autostart-Delay=2

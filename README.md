@@ -155,12 +155,15 @@ On the next **Persistent-mode** boot, you'll be prompted for that passphrase at 
 #### Using a bridge (when Tor is blocked/censored)
 If Tor can't connect on your network, use a **bridge** — an unlisted entry relay that hides Tor traffic. AuroraOS configures bridges the **Tails way**:
 
-1. **Get a bridge line** (on another connection/device), e.g. from `https://bridges.torproject.org`, or email `bridges@torproject.org` from a Gmail/Riseup address. A line looks like:
+1. **Get a bridge line** (on another connection/device), e.g. from `https://bridges.torproject.org`, or email `bridges@torproject.org` from a Gmail/Riseup address. The email reply contains your bridge lines **and a QR code** that encodes them. A line looks like:
    `obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0`
 2. Open **Connect to Tor** from the app grid and choose **Configure a bridge**.
-3. Paste your bridge line(s) into the box and apply. AuroraOS strictly validates each line and runs `tor --verify-config` before installing anything — a malformed or rejected line changes nothing.
-4. Connect. The kill-switch stays up the whole time, so nothing leaks while you're pasting.
-5. **Bridges are amnesic** — gone on reboot, just like Tails. Keep your lines in a text file in `~/Persistent` (or `~/Documents`) and paste them again next session.
+3. Pick how to enter the line(s):
+   - **Scan a QR code with the webcam** (Tails-style) — hold the QR code from the bridges email up to the camera. AuroraOS turns the webcam **on only for the scan** and **off again** the instant a code is read (the camera is disabled by default). The decoded lines are dropped into the box for you to review.
+   - **Paste bridge line(s) as text** — type or paste them in.
+4. Apply. AuroraOS strictly validates each line and runs `tor --verify-config` before installing anything — a malformed or rejected line changes nothing. (Scanning is just another way to enter a line; the *same* validation runs either way, so a QR carries no extra trust.)
+5. Connect. The kill-switch stays up the whole time, so nothing leaks while you configure.
+6. **Bridges are amnesic** — gone on reboot, just like Tails. Keep your lines in a text file in `~/Persistent` (or `~/Documents`) and re-enter them next session.
 
 > **Threat-model note:** configuring a bridge from the session means AuroraOS trusts *your session* to pick Tor's entry relay — the same stance Tails takes. The kill-switch still prevents leaks from misconfigured apps; it does not claim to stop malware already running as you from choosing a bad bridge. See [`docs/SECURITY-AUDIT.md`](docs/SECURITY-AUDIT.md).
 
@@ -291,7 +294,7 @@ auroraos/
 → You haven't run `sudo aurora-persistent-setup` yet, or the USB was reflashed. Run the setup tool once to create the encrypted volume.
 
 **Can't connect to Wi-Fi in Tor mode**
-→ Expected until Tor establishes a circuit (can take 30–60s). The kill switch blocks all traffic until then. Run `aurora-tor status` to check. If it never connects, your network may block Tor — use the **Connect to Tor** assistant's "Configure a bridge" option and paste a bridge line (see *Using a bridge* above). Don't edit `/etc/tor/torrc` by hand; the assistant validates and verifies each line through `aurora-tor-set-bridges`.
+→ Expected until Tor establishes a circuit (can take 30–60s). The kill switch blocks all traffic until then. Run `aurora-tor status` to check. If it never connects, your network may block Tor — use the **Connect to Tor** assistant's "Configure a bridge" option and either **scan the QR code** from the bridges email or **paste a bridge line** (see *Using a bridge* above). Don't edit `/etc/tor/torrc` by hand; the assistant validates and verifies each line through `aurora-tor-set-bridges`.
 
 ---
 

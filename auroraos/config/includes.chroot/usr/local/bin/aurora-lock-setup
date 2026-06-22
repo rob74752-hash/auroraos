@@ -1,0 +1,46 @@
+#!/bin/sh
+# =============================================================================
+# AuroraOS — aurora-lock-setup  (user; launched from the Lock button)
+# =============================================================================
+# The live user has NO password by default, so the Quick Settings "Lock" button
+# can't lock the screen yet. When it's clicked in that state, the AuroraOS
+# lock-menu shell extension opens THIS script in a terminal. It:
+#   1. sets a password (aurora-set-password re-prompts clearly on a mismatch),
+#   2. on success, tells the user, PAUSES so they can read it, then LOCKS the
+#      screen — so the click finally does what the user expected.
+#
+# This is deliberately SEPARATE from the app-grid "Set a Password" launcher,
+# which sets a password but does NOT lock right afterwards (you opened it to
+# configure, not to lock this instant). That difference is the whole reason this
+# wrapper exists, and why the lock-and-pause lives here, not in aurora-set-password.
+# =============================================================================
+
+echo "AuroraOS — set a password so the screen can lock"
+echo
+
+if sudo aurora-set-password; then
+    echo
+    echo "==================================================================="
+    echo "  Password set. The screen will LOCK in a few seconds."
+    echo "  Unlock it with the password you just chose."
+    echo "==================================================================="
+    # A deliberate pause so the success message is actually readable before the
+    # lock screen takes over (otherwise it would flash past).
+    sleep 5
+
+    # Lock the CURRENT session. We run as the live user, so this reaches the
+    # session's locker. Try logind first (most reliable), then GNOME's
+    # ScreenSaver D-Bus interface as fallbacks.
+    loginctl lock-session "${XDG_SESSION_ID:-}" 2>/dev/null \
+      || loginctl lock-session 2>/dev/null \
+      || gdbus call --session --dest org.gnome.ScreenSaver \
+            --object-path /org/gnome/ScreenSaver \
+            --method org.gnome.ScreenSaver.Lock >/dev/null 2>&1 \
+      || dbus-send --session --type=method_call --dest=org.gnome.ScreenSaver \
+            /org/gnome/ScreenSaver org.gnome.ScreenSaver.Lock >/dev/null 2>&1
+else
+    echo
+    echo "Password was NOT set, so the screen is still unlocked."
+    printf 'Press Enter to close this window… '
+    read _
+fi

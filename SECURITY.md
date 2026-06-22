@@ -23,8 +23,8 @@ images must be re-flashed.
 
 | Version | Supported |
 |---------|-----------|
-| v0.5 (current) | ✅ |
-| < v0.5 | ❌ (re-flash to the latest) |
+| v0.55 (current) | ✅ |
+| < v0.55 | ❌ (re-flash to the latest) |
 
 ## Reporting a vulnerability
 

@@ -9,11 +9,16 @@
 # censored). This dialog drives that choice, bootstraps the SYSTEM tor, and opens
 # Tor Browser once a circuit is established.
 #
-# BRIDGES (Tails-style): you paste bridge lines into the "Configure a bridge"
-# box; aurora-tor-set-bridges (root, via sudo) strictly validates each line and
-# runs `tor --verify-config` before installing them. The kill-switch stays up
-# the whole time, so nothing leaks while you're pasting. Bridges are amnesic —
-# gone on reboot — like Tails. Keep your lines in a text file in ~/Persistent.
+# BRIDGES (Tails-style): you provide bridge lines two ways — paste them as text,
+# or SCAN A QR CODE with the webcam (e.g. the QR in the reply from
+# bridges@torproject.org). Either way the lines land in the "Configure a bridge"
+# box and go through aurora-tor-set-bridges (root, via sudo), which strictly
+# validates each line and runs `tor --verify-config` before installing them. The
+# QR is just another way to type a bridge line — it carries no extra trust. The
+# webcam is OFF by default; the scanner turns it on only for the scan and off
+# again right after. The kill-switch stays up the whole time, so nothing leaks
+# while you configure. Bridges are amnesic — gone on reboot — like Tails. Keep
+# your lines in a text file in ~/Persistent.
 #
 # Cancelling leaves the machine OFFLINE (everything stays blocked) — never a
 # leak. You can reopen this from the app grid ("Connect to Tor") at any time.
@@ -37,6 +42,28 @@ open_browser() { exec /usr/local/bin/tor-browser; }
 # Already connected (assistant re-run after a successful connect) -> just browse.
 connected && open_browser
 
+# Wait for the GNOME Initial Setup wizard (language -> keyboard -> Wi-Fi) to
+# finish before we take over the screen. This makes the connection assistant read
+# as the NEXT step after the wizard, instead of popping up on top of it. We give
+# the wizard a few seconds to appear (so a fast autologin doesn't race past it),
+# then wait until the user finishes or closes it. If the wizard never runs
+# (already completed), this falls through immediately. A ~10-min safety cap means
+# a stuck wizard can never wedge the assistant forever.
+#
+# NOTE: pgrep -f (match the full command line), NOT -x: the kernel truncates the
+# process "comm" to 15 chars, so an exact match on the 22-char name would never
+# fire and the wait would silently no-op.
+if command -v pgrep >/dev/null 2>&1; then
+    j=0
+    while [ "$j" -lt 8 ] && ! pgrep -f gnome-initial-setup >/dev/null 2>&1; do
+        sleep 1; j=$((j + 1))
+    done
+    j=0
+    while pgrep -f gnome-initial-setup >/dev/null 2>&1 && [ "$j" -lt 600 ]; do
+        sleep 1; j=$((j + 1))
+    done
+fi
+
 # If the GUI toolkit is somehow unavailable, connect directly rather than
 # stranding the user offline with no way forward (still fail-closed underneath).
 if ! command -v "$ZEN" >/dev/null 2>&1; then
@@ -54,13 +81,18 @@ INTRO="AuroraOS is in Tor mode.\n\nAll internet traffic is BLOCKED until you con
 # without touching Tor. See SECURITY-AUDIT.md (C1d/C3 resolved, Tails model) for
 # the accepted tradeoff.
 configure_bridge() {
+    # $1: optional file whose contents PRE-FILL the editable box (used by the QR
+    # scanner to show the decoded lines for review). Defaults to /dev/null, i.e.
+    # the box starts EMPTY (amnesic; paste fresh each session).
+    #
     # zenity --text-info --editable: editable text box, prints edited content to
-    # stdout. --filename=/dev/null => starts EMPTY (amnesic; paste fresh each
-    # session). The checkbox gives a confirmation step; Cancel/close returns
-    # non-zero so we bail without changing anything.
+    # stdout. The checkbox gives a confirmation step; Cancel/close returns
+    # non-zero so we bail without changing anything. Whether typed, pasted, or
+    # decoded from a QR code, the lines take the SAME validated path below.
+    prefill="${1:-/dev/null}"
     lines="$($ZEN --text-info --editable --title="Configure a bridge" \
         --width=620 --height=360 --checkbox="Apply and close" \
-        --filename=/dev/null 2>/dev/null)" || return 1
+        --filename="$prefill" 2>/dev/null)" || return 1
 
     # Pipe to the root helper. It re-validates each line and runs
     # `tor --verify-config` before installing anything. Empty input removes any
@@ -78,17 +110,127 @@ configure_bridge() {
     return 0
 }
 
-# Offer a bridge-line source, then the paste box. Returns 0 if a bridge was
-# applied and the user wants to connect now, 1 otherwise (so the loop can decide
-# whether to fall through to connect or go back to the menu).
-try_configure_bridge() {
-    if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null
-    elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null
-    elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null; fi
-    $ZEN --info --title="Get a bridge line first" --width=600 \
-        --text="Get a bridge line (any of):\n  • Open the \"Unsafe Browser\" (clearnet) and visit  $BRIDGES_URL  (copied to your clipboard)\n  • email bridges@torproject.org from a Gmail/Riseup address\n  • use another device\n\nExample:  obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0\n\nKeep your lines in a text file in ~/Persistent and paste them each session (like Tails). Press OK to open the paste box." \
+# --- Scan a QR code into the bridge box (Tails-style) -------------------------
+# Reads the QR code in the reply from bridges@torproject.org (or from
+# bridges.torproject.org) with the webcam and writes the decoded bridge line(s)
+# to the file named by $1. Returns 0 if something was decoded, 1 otherwise.
+#
+# The webcam is OFF by default in AuroraOS (uvcvideo blacklisted). We turn it ON
+# only for the scan and OFF again the moment we're done — on success, cancel,
+# timeout, or error — so the privacy default is always restored. The decoded
+# text is NOT trusted: the caller shows it in the editable box for review and
+# passes it through aurora-tor-set-bridges, which validates every line and runs
+# `tor --verify-config` before anything is installed. The QR merely saves you
+# typing a long obfs4 line by hand.
+scan_bridge_qr() {
+    out="$1"
+    : > "$out"
+
+    if ! command -v zbarcam >/dev/null 2>&1; then
+        $ZEN --error --width=480 --title="QR scanning unavailable" \
+            --text="The QR scanner (zbar) isn't available in this build, so the webcam scan can't run.\n\nUse \"Paste bridge line(s)\" instead." 2>/dev/null
+        return 1
+    fi
+
+    $ZEN --question --width=560 --title="Scan a bridge QR code" \
+        --ok-label="Turn on camera & scan" --cancel-label="Back" \
+        --text="Hold the QR code from the Tor bridges email (the reply from bridges@torproject.org), or from $BRIDGES_URL, up to the webcam.\n\nThe camera is OFF by default for privacy. AuroraOS turns it ON only for this scan and OFF again the instant a code is read.\n\nA preview window opens — line the QR code up inside it. Capturing is automatic; close the preview window to cancel." \
         2>/dev/null || return 1
-    configure_bridge || return 1
+
+    if ! sudo -n aurora-camera on >/dev/null 2>&1; then
+        $ZEN --error --width=480 --title="Camera error" \
+            --text="Could not turn the webcam on." 2>/dev/null
+        return 1
+    fi
+
+    # The device node appears a moment after the driver loads (udev lag).
+    dev=""
+    i=0
+    while [ "$i" -lt 24 ]; do
+        for d in /dev/video0 /dev/video1 /dev/video2 /dev/video3; do
+            [ -e "$d" ] && { dev="$d"; break; }
+        done
+        [ -n "$dev" ] && break
+        sleep 0.25; i=$((i + 1))
+    done
+
+    cap="$(mktemp /tmp/aurora-qr.XXXXXX)"; chmod 600 "$cap"
+    if [ -n "$dev" ]; then
+        # QR codes only (-Sdisable then -Sqrcode.enable); --raw => emit just the
+        # decoded data with no "QR-Code:" prefix, so the text drops straight into
+        # the validator. The preview window lets the user aim.
+        zbarcam -q --raw -Sdisable -Sqrcode.enable "$dev" >"$cap" 2>/dev/null &
+        zpid=$!
+        # Wait up to ~90s for the first decoded symbol to land. Closing the
+        # preview window makes zbarcam exit, which ends the wait early (= cancel).
+        i=0
+        while kill -0 "$zpid" 2>/dev/null; do
+            if [ -s "$cap" ]; then
+                sleep 0.3   # let the full (possibly multi-line) symbol flush
+                break
+            fi
+            [ "$i" -ge 360 ] && break
+            sleep 0.25; i=$((i + 1))
+        done
+        kill "$zpid" 2>/dev/null
+        wait "$zpid" 2>/dev/null
+    fi
+
+    # Restore the privacy default immediately: camera OFF again.
+    sudo -n aurora-camera off >/dev/null 2>&1 || true
+
+    # Keep non-blank, de-duplicated lines (a steady QR can be decoded on several
+    # frames, emitting the same symbol more than once).
+    awk 'NF && !seen[$0]++' "$cap" >"$out" 2>/dev/null
+    rm -f "$cap"
+
+    if [ ! -s "$out" ]; then
+        : > "$out"
+        if [ -z "$dev" ]; then
+            $ZEN --error --width=480 --title="No webcam found" \
+                --text="The camera was turned on but no capture device appeared.\n\nCheck that a webcam is connected, or use \"Paste bridge line(s)\" instead." 2>/dev/null
+        else
+            $ZEN --warning --width=480 --title="No QR code detected" \
+                --text="No QR code was read.\n\nTry again with the code held steady and well-lit, or use \"Paste bridge line(s)\" instead." 2>/dev/null
+        fi
+        return 1
+    fi
+    return 0
+}
+
+# Choose HOW to enter bridge lines (scan a QR code, or paste text), capture them,
+# and apply via the validated root helper. Returns 0 if a bridge was applied and
+# the user wants to connect now, 1 otherwise (so the loop can decide whether to
+# fall through to connect or go back to the menu).
+try_configure_bridge() {
+    method="$($ZEN --list --radiolist --title="Configure a bridge" \
+        --width=600 --height=320 \
+        --text="A bridge is an unlisted Tor entry relay — use one where Tor is blocked or censored.\n\nHow do you want to enter your bridge line(s)?" \
+        --print-column=2 --hide-column=2 \
+        --column="" --column="id" --column="Method" \
+        TRUE  scan  "Scan a QR code with the webcam  (e.g. the Tor bridges email)" \
+        FALSE paste "Paste bridge line(s) as text" \
+        2>/dev/null)" || return 1
+
+    if [ "$method" = "scan" ]; then
+        QR="$(mktemp /tmp/aurora-qr-out.XXXXXX)"; chmod 600 "$QR"
+        if ! scan_bridge_qr "$QR"; then rm -f "$QR"; return 1; fi
+        # Show the decoded lines in the editable box so the user can review (and
+        # edit) before applying. Same validated path as pasting.
+        configure_bridge "$QR"; rc=$?
+        rm -f "$QR"
+        [ "$rc" -eq 0 ] || return 1
+    else
+        # Paste path: tell the user where to GET a bridge line first.
+        if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null
+        elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null
+        elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null; fi
+        $ZEN --info --title="Get a bridge line first" --width=600 \
+            --text="Get a bridge line (any of):\n  • Open the \"Unsafe Browser\" (clearnet) and visit  $BRIDGES_URL  (copied to your clipboard)\n  • email bridges@torproject.org from a Gmail/Riseup address\n  • use another device\n\nExample:  obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0\n\nKeep your lines in a text file in ~/Persistent and paste them each session (like Tails). Press OK to open the paste box." \
+            2>/dev/null || return 1
+        configure_bridge /dev/null || return 1
+    fi
+
     $ZEN --question --title="Bridge set" --width=460 \
         --text="Bridge applied. Tor will use it.\n\nConnect to Tor now?" \
         --ok-label="Connect" --cancel-label="Back to menu" 2>/dev/null

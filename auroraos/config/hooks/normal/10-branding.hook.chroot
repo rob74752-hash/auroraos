@@ -10,7 +10,7 @@ set -e
 
 USERNAME="aurora"
 HOSTNAME="auroraos"
-VERSION="0.5"
+VERSION="0.55"
 SITE="https://auroraos.pages.dev"
 
 echo "[aurora] Applying branding..."
@@ -108,8 +108,10 @@ Useful commands:
   sudo aurora-persistent-setup   Create the encrypted Persistent volume (once)
   sudo aurora-tor-connect        Connect Tor + kill-switch
   Bridges (if Tor is censored)   Set in the "Connect to Tor" assistant — choose
-                                 "Configure a bridge" and paste your bridge line.
-                                 Keep your lines in ~/Persistent; they're amnesic.
+                                 "Configure a bridge", then either scan the QR
+                                 code from the bridges email with the webcam or
+                                 paste your bridge line. Amnesic — keep your
+                                 lines in ~/Persistent and re-enter them.
                                    obfs4 <ip>:<port> <fingerprint> cert=... iat-mode=0
   aurora-upgrade            Check for and install a signed AuroraOS update
 

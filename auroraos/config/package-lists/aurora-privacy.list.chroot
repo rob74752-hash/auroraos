@@ -14,6 +14,13 @@ tor-geoipdb
 obfs4proxy
 snowflake-client
 
+# --- QR code scanning for bridges (Tails-style). zbar-tools provides zbarcam,
+#     which the "Connect to Tor" assistant uses to read the QR code in the reply
+#     from bridges@torproject.org and drop the bridge lines into the (validated)
+#     bridge box. The webcam is enabled only for the scan and disabled again
+#     right after — it is OFF by default (see aurora-camera).
+zbar-tools
+
 # --- Anonymity apps (match Tails) ---
 onionshare
 onioncircuits

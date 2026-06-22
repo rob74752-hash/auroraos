@@ -67,8 +67,12 @@ function _openSetPassword() {
         Main.panel.statusArea.quickSettings.menu.close();
     } catch (e) {}
     try {
+        // The Lock button was clicked with no password set yet. Open the
+        // lock-path wrapper, which sets a password and — on success — locks the
+        // screen (which is what the click was meant to do). This is deliberately
+        // NOT the app-grid "Set a Password", which does not auto-lock afterwards.
         GLib.spawn_command_line_async(
-            'gnome-terminal --title=Set\\ a\\ Password -- sudo aurora-set-password');
+            'gnome-terminal --title=Set\\ a\\ Password -- /usr/local/bin/aurora-lock-setup');
     } catch (e) {
         logError(e, 'aurora-lockmenu: spawn set-password');
     }
