@@ -53,6 +53,14 @@ while IFS= read -r raw || [ -n "$raw" ]; do
     [ -n "$line" ] || continue
     [ "${line#\#}" = "$line" ] || continue   # ignore full-line comments
 
+    # Be lenient about a leading "Bridge " keyword. bridges.torproject.org and the
+    # email give lines WITHOUT it, but many guides / torrc snippets present them as
+    # "Bridge obfs4 ...". Strip ONE leading Bridge keyword so pasting either form
+    # works — we re-add exactly one "Bridge " ourselves when we write the file, so
+    # this cannot smuggle a second directive.
+    line="$(printf '%s' "$line" | sed -E 's/^[Bb]ridge[[:space:]]+//')"
+    [ -n "$line" ] || continue
+
     # HARD reject any control character (newline injection / torrc smuggling).
     if printf '%s' "$line" | LC_ALL=C grep -q '[[:cntrl:]]'; then
         echo "aurora-tor-set-bridges: rejected (control character): $line" >&2
@@ -64,13 +72,16 @@ while IFS= read -r raw || [ -n "$raw" ]; do
     # transport: OPTIONAL — obfs4|webtunnel|snowflake|meek_lite|conjure|obfs3|
     #            scramblesuit (omitted = a plain/vanilla bridge, Tails-style).
     # host:port: IPv4, [IPv6], or hostname, then :port (1-5 digits)
-    # then the usual identity/transport args. The arg charset includes URL
+    # then the usual identity/transport args. The HOST charset is full
+    # alphanumeric (+ . : _ -) so DOMAIN-NAME bridges work — webtunnel/meek and
+    # some obfs4 bridges use a hostname, not an IP. (The old [A-Fa-f]-only host
+    # class silently rejected every hostname bridge.) The arg charset includes URL
     # punctuation (? & % ~ @) so webtunnel `url=` values with query strings are
     # accepted. Anything that is still malformed is caught by tor --verify-config
     # below; control chars are already rejected above, so a Bridge line can never
     # smuggle a second directive regardless of what the args contain.
     if ! printf '%s' "$line" | LC_ALL=C grep -Eq \
-        '^((obfs4|webtunnel|snowflake|meek_lite|conjure|obfs3|scramblesuit)[[:space:]]+)?(\[?[0-9A-Fa-f.:_-]+\]?):[0-9]{1,5}([[:space:]]+[0-9A-Za-z:._=,+/?&%~@-]+)*[[:space:]]*$'
+        '^((obfs4|webtunnel|snowflake|meek_lite|conjure|obfs3|scramblesuit)[[:space:]]+)?(\[?[0-9A-Za-z.:_-]+\]?):[0-9]{1,5}([[:space:]]+[0-9A-Za-z:._=,+/?&%~@-]+)*[[:space:]]*$'
         then
         echo "aurora-tor-set-bridges: rejected (not a valid bridge line): $line" >&2
         exit 3

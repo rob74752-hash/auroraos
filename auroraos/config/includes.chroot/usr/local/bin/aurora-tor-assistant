@@ -221,12 +221,18 @@ try_configure_bridge() {
         rm -f "$QR"
         [ "$rc" -eq 0 ] || return 1
     else
-        # Paste path: tell the user where to GET a bridge line first.
-        if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null
-        elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null
-        elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null; fi
+        # Paste path: tell the user where to GET a bridge line. We copy the
+        # bridges website address to the clipboard so it can be pasted into the
+        # Unsafe Browser's address bar — and we SAY SO clearly, but ONLY when the
+        # copy actually succeeded (otherwise we don't claim it).
+        clip=""
+        if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null && clip=1
+        elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null && clip=1
+        elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null && clip=1; fi
+        clipmsg=""
+        [ -n "$clip" ] && clipmsg="\n\n📋 The bridges website address ($BRIDGES_URL) was copied to your clipboard — open the Unsafe Browser and paste it into the address bar."
         $ZEN --info --title="Get a bridge line first" --width=600 \
-            --text="Get a bridge line (any of):\n  • Open the \"Unsafe Browser\" (clearnet) and visit  $BRIDGES_URL  (copied to your clipboard)\n  • email bridges@torproject.org from a Gmail/Riseup address\n  • use another device\n\nExample:  obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0\n\nKeep your lines in a text file in ~/Persistent and paste them each session (like Tails). Press OK to open the paste box." \
+            --text="Get a bridge line (any of):\n  • Open the \"Unsafe Browser\" (clearnet) and visit  $BRIDGES_URL\n  • email bridges@torproject.org from a Gmail/Riseup address\n  • use another device$clipmsg\n\nExample:  obfs4 192.0.2.1:443 <FINGERPRINT> cert=... iat-mode=0\n\nKeep your lines in a text file in ~/Persistent and paste them each session (like Tails). Press OK to open the paste box." \
             2>/dev/null || return 1
         configure_bridge /dev/null || return 1
     fi
