@@ -69,6 +69,7 @@ runuser -u clearnet -- env \
     bwrap \
         --ro-bind / / \
         --dev /dev \
+        --tmpfs /dev/shm \
         --proc /proc \
         --tmpfs /tmp \
         --tmpfs /home \
