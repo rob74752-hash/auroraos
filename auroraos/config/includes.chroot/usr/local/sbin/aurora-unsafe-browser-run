@@ -23,6 +23,7 @@ DISP="${1:-:0}"
 TBB="/usr/local/share/tor-browser/Browser"
 CN_HOME="/home/clearnet"
 PROFILE="$CN_HOME/.unsafe-profile"
+TBDATA="$CN_HOME/.unsafe-tbdata"
 RESOLV="$CN_HOME/.unsafe-resolv.conf"
 WARN="/usr/local/share/aurora/unsafe-browser-warning.html"
 
@@ -53,6 +54,27 @@ user_pref("geo.enabled", false);
 PREFS
 chown -R clearnet:clearnet "$PROFILE"
 
+# 2b. Give the Unsafe Browser its OWN copy of TorBrowser/Data.
+# Tor Browser's firefox opens its bundled TorBrowser/Data dir at startup (its
+# "portable profile" mechanism) EVEN when we pass --profile. The bundle's Data is
+# owned by uid 1000 (aurora) and locked to that owner for privacy (so the
+# non-anonymous clearnet user can't read aurora's Tor browsing), AND it is
+# read-only in this sandbox. clearnet is a DIFFERENT uid, so it cannot open Data
+# and Tor Browser dies with "Your Tor Browser profile cannot be loaded. It may be
+# missing or inaccessible." Copy Data to a clearnet-owned, writable location and
+# bind it over the bundle's Data inside the sandbox (see bwrap below). aurora's
+# real Tor Browser data is never read or exposed: it stays 0700 on the host and is
+# masked by the bind. The copy is from the pristine bundle Data — at captive-portal
+# time Tor isn't up yet, so aurora cannot have browsed.
+rm -rf "$TBDATA"
+cp -a "$TBB/TorBrowser/Data" "$TBDATA" 2>/dev/null || mkdir -p "$TBDATA/Browser"
+# Force DIRECT (non-Tor) connection in the copied default profile too, so even if
+# Tor Browser falls back to its portable profile instead of the --profile we pass,
+# it still won't try to reach the (not-yet-running) Tor. Belt-and-braces.
+mkdir -p "$TBDATA/Browser/profile.default"
+cp -f "$PROFILE/user.js" "$TBDATA/Browser/profile.default/user.js" 2>/dev/null || true
+chown -R clearnet:clearnet "$TBDATA"
+
 # 3. Open the clearnet exemption — and ALWAYS close it on exit.
 trap '/usr/local/lib/aurora/tor-mode.sh clearnet-close 2>/dev/null || true' EXIT INT TERM HUP
 /usr/local/lib/aurora/tor-mode.sh clearnet-open || true
@@ -65,6 +87,7 @@ runuser -u clearnet -- env \
     DISPLAY="$DISP" \
     GDK_BACKEND=x11 \
     MOZ_ENABLE_WAYLAND=0 \
+    NO_AT_BRIDGE=1 \
     TOR_SKIP_LAUNCH=1 \
     bwrap \
         --ro-bind / / \
@@ -79,6 +102,7 @@ runuser -u clearnet -- env \
         --tmpfs /run/user \
         --ro-bind /tmp/.X11-unix /tmp/.X11-unix \
         --bind "$CN_HOME" "$CN_HOME" \
+        --bind "$TBDATA" "$TBB/TorBrowser/Data" \
         --ro-bind "$RESOLV" /etc/resolv.conf \
         --die-with-parent \
         --unshare-pid \

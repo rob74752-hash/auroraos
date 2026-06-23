@@ -39,6 +39,24 @@ connected() {
 
 open_browser() { exec /usr/local/bin/tor-browser; }
 
+# Turn Tor's JSON-array bridge format into plain bridge lines (one per line).
+# bridges.torproject.org and the bridges@torproject.org QR code commonly hand you
+#   ["webtunnel [2001:db8::1]:443 <FP> url=https://h/p ver=0.0.4", "obfs4 1.2.3.4:443 ..."]
+# A real bridge line never contains a double-quote, so each "..." is exactly one
+# bridge line; we emit those verbatim (un-escaping JSON \/ in url= values) and
+# drop only the outer array punctuation — an IPv6 [...] inside a line survives.
+# Input that contains no double-quote isn't JSON and is passed through unchanged.
+extract_bridge_lines() {
+    if printf '%s' "$1" | grep -q '"'; then
+        # Each "..." is one bridge line: strip the surrounding quotes, then delete
+        # any backslashes (bridge lines never contain one, so this safely turns a
+        # JSON-escaped \/ back into /). The IPv6 [...] inside a line is untouched.
+        _out="$(printf '%s' "$1" | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//' | tr -d '\\')"
+        [ -n "$_out" ] && { printf '%s\n' "$_out"; return; }
+    fi
+    printf '%s' "$1"
+}
+
 # Already connected (assistant re-run after a successful connect) -> just browse.
 connected && open_browser
 
@@ -93,6 +111,16 @@ configure_bridge() {
     lines="$($ZEN --text-info --editable --title="Configure a bridge" \
         --width=620 --height=360 --checkbox="Apply and close" \
         --filename="$prefill" 2>/dev/null)" || return 1
+
+    # The Tor bridges QR code (and some "copy your bridges" buttons) hand you the
+    # lines as a JSON array, e.g.
+    #   ["webtunnel [2001:db8::1]:443 <FP> url=https://h/p ver=0.0.4", "obfs4 ..."]
+    # Pasting or scanning that raw fails validation, because [ ] " , are not part
+    # of a bridge line. A real bridge line never contains a double-quote, so if the
+    # input has any, treat it as that JSON form and pull out each quoted line. The
+    # IPv6 [...] INSIDE a line is preserved — only the outer array punctuation is
+    # dropped — and JSON-escaped slashes (\/) in url= values are un-escaped.
+    lines="$(extract_bridge_lines "$lines")"
 
     # Pipe to the root helper. It re-validates each line and runs
     # `tor --verify-config` before installing anything. Empty input removes any
@@ -179,9 +207,11 @@ scan_bridge_qr() {
     # Restore the privacy default immediately: camera OFF again.
     sudo -n aurora-camera off >/dev/null 2>&1 || true
 
-    # Keep non-blank, de-duplicated lines (a steady QR can be decoded on several
-    # frames, emitting the same symbol more than once).
-    awk 'NF && !seen[$0]++' "$cap" >"$out" 2>/dev/null
+    # A bridges-email QR decodes to Tor's JSON array; convert it to plain bridge
+    # lines (same de-JSON the paste path uses) so the review box shows real lines,
+    # not ["..."]. Then keep non-blank, de-duplicated lines (a steady QR can be
+    # decoded on several frames, emitting the same symbol more than once).
+    extract_bridge_lines "$(cat "$cap" 2>/dev/null)" | awk 'NF && !seen[$0]++' >"$out" 2>/dev/null
     rm -f "$cap"
 
     if [ ! -s "$out" ]; then
@@ -225,10 +255,16 @@ try_configure_bridge() {
         # bridges website address to the clipboard so it can be pasted into the
         # Unsafe Browser's address bar — and we SAY SO clearly, but ONLY when the
         # copy actually succeeded (otherwise we don't claim it).
+        # Try each clipboard tool and FALL THROUGH if it fails — testing only
+        # `command -v` (does the binary exist) is not enough: on GNOME, wl-copy
+        # exists but FAILS (Mutter doesn't speak the wlr-data-control protocol it
+        # uses), and an `if/elif` on existence alone would then never try xclip.
+        # Gate each branch on the copy actually succeeding, so xclip (via XWayland,
+        # which GNOME does sync to the Wayland clipboard) is reached as a fallback.
         clip=""
-        if command -v wl-copy >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null && clip=1
-        elif command -v xclip >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null && clip=1
-        elif command -v xsel >/dev/null 2>&1; then printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null && clip=1; fi
+        if command -v wl-copy >/dev/null 2>&1 && printf '%s' "$BRIDGES_URL" | wl-copy 2>/dev/null; then clip=1
+        elif command -v xclip >/dev/null 2>&1 && printf '%s' "$BRIDGES_URL" | xclip -selection clipboard 2>/dev/null; then clip=1
+        elif command -v xsel >/dev/null 2>&1 && printf '%s' "$BRIDGES_URL" | xsel -ib 2>/dev/null; then clip=1; fi
         clipmsg=""
         [ -n "$clip" ] && clipmsg="\n\n📋 The bridges website address ($BRIDGES_URL) was copied to your clipboard — open the Unsafe Browser and paste it into the address bar."
         $ZEN --info --title="Get a bridge line first" --width=600 \
