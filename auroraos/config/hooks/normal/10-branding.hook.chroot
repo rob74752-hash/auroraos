@@ -10,7 +10,7 @@ set -e
 
 USERNAME="aurora"
 HOSTNAME="auroraos"
-VERSION="0.57"
+VERSION="0.58"
 SITE="https://auroraos.pages.dev"
 
 echo "[aurora] Applying branding..."

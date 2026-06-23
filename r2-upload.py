@@ -47,7 +47,7 @@ BUCKET = os.environ.get("R2_BUCKET", "auroraos-iso")
 KEY = os.environ.get("R2_KEY", "auroraos-0.1-amd64.iso")
 LOCAL = os.environ.get(
     "R2_LOCAL_ISO",
-    "/mnt/c/Users/User/Downloads/Z AI Creations/Operating System/build-output/auroraos-0.57-amd64.iso",
+    "/mnt/c/Users/User/Downloads/Z AI Creations/Operating System/build-output/auroraos-0.58-amd64.iso",
 )
 
 if not AKID or not SECRET:
@@ -117,7 +117,7 @@ try:
         LOCAL, BUCKET, KEY,
         ExtraArgs={
             "ContentType": "application/octet-stream",
-            "Metadata": {"sha256": digest, "version": "0.57"},
+            "Metadata": {"sha256": digest, "version": "0.58"},
         },
         Config=cfg,
     )

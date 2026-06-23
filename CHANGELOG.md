@@ -1,5 +1,27 @@
 # AuroraOS changelog
 
+## v0.58 — 2026-06-22
+
+**Fixes**
+- **Tor bridges from a QR code / "copy bridges" button now work.** The Tor bridges
+  service hands out bridges as a JSON array — `["webtunnel […]:443 … ver=0.0.4", …]`
+  — and AuroraOS was feeding that raw to the validator, which (correctly) rejected
+  the `[`, `]`, and `"` characters as not part of a bridge line. The connection
+  assistant now parses that JSON array itself (for both the webcam QR scan and
+  pasted text), extracting clean bridge lines while preserving the `[...]` of an
+  IPv6 bridge. Tor's own parser already accepted the underlying lines.
+- **Unsafe Browser loads its profile.** It runs as the sandboxed `clearnet` user
+  (a different uid), but the Tor Browser data directory is owner-only (the v0.56
+  privacy lockdown), so Tor Browser died with "Your Tor Browser profile cannot be
+  loaded. It may be missing or inaccessible." The Unsafe Browser now gets its own
+  writable copy of that data dir, bind-mounted only inside its sandbox — aurora's
+  real Tor Browser data stays private and untouched.
+- **Clipboard copy of the bridges URL works on GNOME.** The assistant tested only
+  whether `wl-copy` *exists*, then ran it — but on GNOME `wl-copy` exists yet fails
+  (its compositor protocol is unsupported), and the `if/elif` never fell through to
+  `xclip`. It now tries each tool until one succeeds, so the "copied to clipboard"
+  message actually appears.
+
 ## v0.57 — 2026-06-22
 
 **Fixes**
