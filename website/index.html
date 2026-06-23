@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0c0d0a" />
   <title>AuroraOS // Field Manual</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=indigo5" />
+  <link rel="stylesheet" href="styles.css?v=indigo6" />
 </head>
 <body>
   <div class="fx-grain" aria-hidden="true"></div>
@@ -195,6 +195,29 @@
         </a>
       </div>
 
+      <!-- Download privacy notice -->
+      <div class="privnote reveal">
+        <div class="privnote__hd">⚠ The download itself is not anonymous</div>
+        <p>
+          This ISO is served through <strong>Cloudflare</strong>. That means Cloudflare —
+          and any network between you and it — can see the <strong>IP address</strong>, time,
+          and file of every download, exactly the way <em>any</em> website sees its visitors.
+          This is unavoidable: you have to fetch a privacy OS over the open internet from
+          <em>some</em> host before you can boot it. The same is true of Tails and every
+          comparable project. <strong>AuroraOS protects you after you boot it — not while you
+          download it.</strong>
+        </p>
+        <p class="privnote__do"><b>To get it privately:</b></p>
+        <ul>
+          <li>Open this page in the <a href="https://www.torproject.org/download/" target="_blank" rel="noopener">Tor Browser ↗</a> or over a trusted <strong>VPN</strong> — Cloudflare then sees the Tor exit / VPN address, not your real IP.</li>
+          <li>Or download from a public / shared network that isn't tied to your identity.</li>
+        </ul>
+        <p class="privnote__ft">
+          Note: the published <code>SHA256</code> and signature prove the file wasn't
+          <em>tampered with</em> — they do nothing for <em>privacy</em>. Don't confuse the two.
+        </p>
+      </div>
+
       <div class="proc reveal">
         <div class="proc__step">
           <div class="proc__num">01<small>DOWNLOAD</small></div>
@@ -298,6 +321,10 @@
           <summary><span><span class="q">Q7</span>How does it update?</span><span class="arrow">+</span></summary>
           <div class="faq__ans"><p>Like Tails — not with <code>apt</code>, but by replacing the whole system image with a <strong>cryptographically signed</strong> one. The built-in <strong>AuroraOS Upgrader</strong> notifies you when a new version exists; one click verifies the signature and SHA-256, then atomically swaps the image on the USB (keeping the old one as a rollback). In Tor mode the download routes over Tor. An unsigned or tampered update is <strong>refused</strong>.</p></div>
         </details>
+        <details class="faq__item">
+          <summary><span><span class="q">Q8</span>Can whoever hosts the download see that I got it?</span><span class="arrow">+</span></summary>
+          <div class="faq__ans"><p>Yes. The ISO is served through <strong>Cloudflare</strong>, so it can see the <strong>IP address</strong>, time, and file of each download — the same way any website sees its visitors. There is no way around that: you have to fetch the OS over the open internet before you can boot it, and Tails and others are in exactly the same position. To avoid it, download over the <strong>Tor Browser</strong> or a <strong>VPN</strong>, or from a network not tied to you — then the host sees the Tor exit / VPN address instead of your real one. The published checksum and signature protect the file's <strong>integrity</strong>, not your <strong>privacy</strong> — and AuroraOS only makes you anonymous <em>after</em> you boot it, not while downloading.</p></div>
+        </details>
       </div>
     </section>
 
@@ -321,6 +348,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=indigo5"></script>
+  <script src="app.js?v=indigo6"></script>
 </body>
 </html>
