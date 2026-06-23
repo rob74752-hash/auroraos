@@ -22,6 +22,7 @@ This project was built end-to-end and the ISO assembles correctly, but:
 - Tor mode uses a fail-closed transparent proxy + kill switch: the firewall is applied **before** Tor starts, only the `debian-tor` daemon may reach the network directly, **IPv6 is dropped** entirely, and **non-DNS UDP/ICMP is dropped** (so it can't leak past Tor). DNS resolves over Tor. This closes the common leak vectors, but it has **not** been independently traffic-leak audited on real hardware — treat it as "much better than nothing," not "guaranteed anonymous." For high-stakes anonymity use Tails.
 - The live user has **scoped passwordless sudo**, not a blanket root shell. It can run the Aurora helpers needed for persistence, password setup, and signed updates, but it cannot stop the Tor kill-switch from a compromised desktop session. To leave Tor mode, reboot into a non-Tor mode.
 - Updates and the bundled Tor Browser are **cryptographically verified** (signed manifests/artifacts; the Tor Browser tarball is GPG-checked against the pinned Tor Project key at build time). An unsigned or tampered update/browser is refused, not installed.
+- **Getting the OS is not anonymous.** The ISO is downloaded over the open internet through Cloudflare, which can see your **IP address** — the same bootstrap problem every privacy OS has (Tails included). AuroraOS protects you *after* you boot it, not while you download it; download over **Tor or a VPN** if that matters. See **Get the ISO** below.
 
 ---
 
@@ -44,6 +45,20 @@ sha256sum auroraos-*-amd64.iso                       # Linux / macOS
 # Windows PowerShell:
 #   Get-FileHash auroraos-*-amd64.iso -Algorithm SHA256
 ```
+
+> **⚠️ The download itself is not anonymous.** The ISO is served through
+> **Cloudflare**, so Cloudflare — and any network between you and it — can see the
+> **IP address**, time, and file of every download, exactly like any website sees
+> its visitors. This is unavoidable: you have to fetch a privacy OS over the open
+> internet from *some* host before you can boot it, and Tails and every comparable
+> project are in the same position. **AuroraOS makes you anonymous _after_ you boot
+> it — not while you download it.**
+>
+> To download privately: fetch this from the **Tor Browser**
+> (https://www.torproject.org/download/) or a trusted **VPN** — the host then sees
+> the Tor exit / VPN address instead of your real IP — or use a public/shared
+> network that isn't tied to you. The published **SHA-256 and signature protect the
+> file's _integrity_, not your _privacy_** — don't confuse the two.
 
 Then jump to **2. Flash to a USB stick** below.
 
